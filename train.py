@@ -58,41 +58,39 @@ Y_DIFFERENT = 0
 np.random.seed(SEED)
 random.seed(SEED)
 
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("identifier")
     args = parser.parse_args()
     validate_identifier(args.identifier)
-    
+
     print("-----------------------")
     print("Loading validation dataset...")
     print("-----------------------")
     print("")
     pairs_val = get_image_pairs(IMAGES_FILEPATH, VALIDATION_COUNT_EXAMPLES, pairs_of_same_imgs=False, ignore_order=True, exclude_images=list(), seed=SEED, verbose=True)
-    
+
     print("-----------------------")
     print("Loading training dataset...")
     print("-----------------------")
     print("")
     pairs_train = get_image_pairs(IMAGES_FILEPATH, TRAIN_COUNT_EXAMPLES, pairs_of_same_imgs=False, ignore_order=True, exclude_images=pairs_val, seed=SEED, verbose=True)
     print("-----------------------")
-    
+
     assert len(pairs_val) == VALIDATION_COUNT_EXAMPLES
     assert len(pairs_train) == TRAIN_COUNT_EXAMPLES
-    
+
     X_val, y_val = image_pairs_to_xy(pairs_val)
     X_train, y_train = image_pairs_to_xy(pairs_train)
-    
+
     plot_person_img_distribution(
         img_filepaths_test, img_filepaths_val, img_filepaths_train,
         only_y_value=Y_SAME,
         show_plot_windows=SHOW_PLOT_WINDOWS,
         save_to_filepath=SAVE_DISTRIBUTION_PLOT_FILEPATH
     )
-    
-    
+
+
     print("Creating model...")
         
     model = Sequential()
@@ -273,7 +271,6 @@ def train_loop(identifier, model, optimizer, epoch_start):
             #save_model_config(model, cfg["save_weights_dir"], model_name + ".at" + str(epoch) + ".config")
             save_model_weights(model, cfg["save_weights_dir"], model_name + ".at" + str(epoch) + ".weights")
             save_optimizer_state(optimizer, cfg["save_optimizer_state_dir"], model_name + ".at" + str(epoch) + ".optstate", overwrite=True)
-    # ------------------------------
 
 if __name__ == "__main__":
     main()
