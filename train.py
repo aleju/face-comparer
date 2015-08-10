@@ -90,9 +90,81 @@ def main():
         save_to_filepath=SAVE_DISTRIBUTION_PLOT_FILEPATH
     )
 
-
     print("Creating model...")
-        
+    model, optimizer = create_model()
+    
+    # Calling the compile method seems to mess with the seeds (theano problem?)
+    # Therefore they are reset here (numpy seeds seem to be unaffected)
+    # (Seems to still not make runs reproducible.)
+    random.seed(SEED)
+
+    la_plotter = LossAccPlotter(save_to_filepath=SAVE_PLOT_FILEPATH.format(identifier=args.identifier))
+
+    if args.load:
+        print("Loading previous model...")
+        epoch_start, history = load_previous_model(args.load, model, optimizer, la_plotter)
+    else:
+        epoch_start = 0
+        history = History()
+    
+    print("Training...")
+    train_loop(args.identifier, model, optimizer, epoch_start, history, la_plotter)
+    
+    print("Finished.")
+
+def validate_identifier(identifier):
+    if not identifier or identifier != re.sub("[^a-zA-Z0-9_]", "", identifier):
+        raise Exception("Invalid characters in identifier, only a-z A-Z 0-9 and _ are allowed.")
+
+def load_previous_model(continue_identifier, model, optimizer, la_plotter):
+    history = History()
+    
+    # load optimizer state
+    (success, last_epoch) = load_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, continue_identifier)
+    
+    # load weights
+    (success, last_epoch) = load_weights(model, SAVE_WEIGHTS_DIR, continue_identifier)
+    
+    if not success:
+        raise Exception("Cannot continue previous experiment, because no weights were saved (yet?).")
+    
+    # load history from csv file
+    history = load_history(continue_identifier, SAVE_CSV_DIR)
+    
+    # update loss acc plotter
+    la_plotter.values_loss_train = history.loss_train
+    la_plotter.values_loss_val = history.loss_val
+    la_plotter.values_acc_train = history.acc_train
+    la_plotter.values_acc_val = history.acc_val
+    
+    return last_epoch, history
+
+def load_history(identifier, save_history_dir):
+    # load previous loss/acc values per epoch from csv file
+    csv_filepath = "{}/{}.csv".format(save_history_dir, identifier)
+    csv_lines = open(csv_filepath, "r").readlines()
+    csv_lines = csv_lines[1:] # no header
+    csv_cells = [line.strip().split(",") for line in csv_lines]
+    epochs = [int(cells[0]) for cells in csv_cells]
+    stats_train_loss = [float(cells[1]) for cells in csv_cells]
+    stats_val_loss = [float(cells[2]) for cells in csv_cells]
+    stats_train_acc = [float(cells[3]) for cells in csv_cells]
+    stats_val_acc = [float(cells[4]) for cells in csv_cells]
+    
+    if last_epoch == "last":
+        start_epoch = epochs[-1] + 1
+    else:
+        start_epoch = last_epoch + 1
+    
+    epochs = range(start_epoch)
+    history.add_all(start_epoch,
+                    stats_train_loss[0:start_epoch],
+                    stats_train_val[0:start_epoch],
+                    stats_acc_train[0:start_epoch],
+                    stats_acc_val[0:start_epoch])
+    return history
+
+def create_model():
     model = Sequential()
     
     model.add(Convolution2D(32, 1, 3, 3, border_mode='full'))
@@ -125,90 +197,42 @@ def main():
     print("Compiling model...")
     model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
     
-    # Calling the compile method seems to mess with the seeds (theano problem?)
-    # Therefore they are reset here (numpy seeds seem to be unaffected)
-    # (Seems to still not make runs reproducible.)
-    random.seed(SEED)
-
-    la_plotter = LossAccPlotter(save_to_filepath=SAVE_PLOT_FILEPATH.format(identifier=args.identifier))
-
-    epoch_start = 0
-    if args.load:
-        print("Loading previous model...")
-        epoch_start = load_previous_model(args.load, model, optimizer, la_plotter)
-    
-    print("Training...")
-    train_loop(args.identifier, model, optimizer, epoch_start)
-    
-    print("Finished.")
-
-def validate_identifier(identifier):
-    if not identifier or identifier != re.sub("[^a-zA-Z0-9_]", "", identifier):
-        raise Exception("Invalid characters in identifier, only a-z A-Z 0-9 and _ are allowed.")
-
-def load_previous_model():
-    # load old model if that is requested
-    if continue_identifier:
-        # load optimizer state
-        (success, last_epoch) = load_optimizer_state(optimizer, cfg["save_optimizer_state_dir"], continue_identifier)
-        
-        # load weights
-        (success, last_epoch) = load_weights(model, cfg["save_weights_dir"], continue_identifier)
-        
-        if not success:
-            raise Exception("Cannot continue previous experiment, because no weights were saved (yet?).")
-        else:
-            # load previous loss/acc values per epoch from csv file
-            csv_lines = open(cfg["save_csv_filepath"], "r").readlines()
-            csv_lines = csv_lines[1:] # no header
-            csv_cells = [line.strip().split(",") for line in csv_lines]
-            epochs = [int(cells[0]) for cells in csv_cells]
-            stats_train_loss = [float(cells[1]) for cells in csv_cells]
-            stats_val_loss = [float(cells[2]) for cells in csv_cells]
-            stats_train_acc = [float(cells[3]) for cells in csv_cells]
-            stats_val_acc = [float(cells[4]) for cells in csv_cells]
-            
-            if last_epoch == "last":
-                start_epoch = epochs[-1] + 1
-            else:
-                start_epoch = last_epoch + 1
-                # the csv file contents may have stats logged after
-                # the last checkpoint at which the weights were saved.
-                # Those stats are clipped off.
-                stats_train_loss = stats_train_loss[0:last_epoch+1]
-                stats_val_loss = stats_val_loss[0:last_epoch+1]
-                stats_train_acc = stats_train_acc[0:last_epoch+1]
-                stats_val_acc = stats_val_acc[0:last_epoch+1]
-    else:
-        # Lists with values of loss and acc (for training and val. data)
-        stats_train_loss = []
-        stats_val_loss = []
-        stats_train_acc = []
-        stats_val_acc = []
-    
-        start_epoch = 0
+    return model, optimizer
 
 class History(object):
     def __init__(self):
-        self.loss_train = OrderedDict()
-        self.loss_val = OrderedDict()
-        self.acc_train = OrderedDict()
-        self.acc_val = OrderedDict()
+        self.first_epoch = 1000 * 1000
+        self.last_epoch = -1
+        self.loss_train = []
+        self.loss_val = []
+        self.acc_train = []
+        self.acc_val = []
 
-    def add_values(self, epoch, loss_train=None, loss_val=None, acc_train=None, acc_val=None):
-        if loss_train is not None:
-            self.loss_train[epoch] = loss_train
-        if loss_val is not None:
-            self.loss_val[epoch] = loss_val
-        if acc_train is not None:
-            self.acc_train[epoch] = acc_train
-        if acc_val is not None:
-            self.acc_val[epoch] = acc_val
+    def add(self, epoch, loss_train=None, loss_val=None, acc_train=None, acc_val=None):
+        self.loss_train.append(loss_train)
+        self.loss_val.append(loss_val)
+        self.acc_train.append(acc_train)
+        self.acc_val.append(acc_val)
+        self.first_epoch = min(self.first_epoch, epoch)
+        self.last_epoch = max(self.last_epoch, epoch)
 
-def train_loop(identifier, model, optimizer, epoch_start):
+    def add_all(self, start_epoch, loss_train, loss_val, acc_train, acc_val):
+        last_epoch = start_epoch + len(loss_train)
+        for epoch, lt, lv, at, av in zip(range(start_epoch, last_epoch+1), loss_train, loss_val, acc_train, acc_val):
+            self.add(epoch, loss_train=lt, loss_val=lv, acc_train=at, acc_val=av)
+
+    def save_to_file(self, csv_filepath):
+        with open(csv_filepath, "w") as fp:
+            csvw = csv.writer(fp, delimiter=",")
+            # header row
+            rows = [["epoch", "train_loss", "val_loss", "train_acc", "val_acc"]]
+            
+            #data = data + [[r_e, r_tl, r_vl, r_ta, r_va] for r_e, r_tl, r_vl, r_ta, r_va in zip(range(epoch+1), stats_train_loss, stats_val_loss, stats_train_acc, stats_val_acc)]
+            rows.extend(zip(range(epoch+1), stats_train_loss, stats_val_loss, stats_train_acc, stats_val_acc))
+            csvw.writerows(rows)
+
+def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter):
     # Loop over each epoch, i.e. executes 20 times if epochs set to 20
-    history = History()
-    la_plotter = LossAccPlotter(save_to_filepath=)
     
     for epoch in range(epoch_start, EPOCHS):
         print("Epoch", epoch)
@@ -247,12 +271,11 @@ def train_loop(identifier, model, optimizer, epoch_start):
         loss_val = loss_val_sum / len(X_val)
         acc_val = acc_val_sum / len(X_val)
         
-        history.add_values(epoch, loss_train=loss_train, loss_val=loss_val, acc_train=acc_train, acc_val=acc_val)
+        history.add(epoch, loss_train=loss_train, loss_val=loss_val, acc_train=acc_train, acc_val=acc_val)
         
         # ---
         # Update plots with new data from this epoch
         # ---
-        
         if epoch > 0:
             la_plotter.add_values(epoch, loss_train=loss_train, loss_val=loss_val, acc_train=acc_train, acc_val=acc_val)
         
