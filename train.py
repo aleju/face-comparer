@@ -116,20 +116,20 @@ def validate_identifier(identifier):
     if not identifier or identifier != re.sub("[^a-zA-Z0-9_]", "", identifier):
         raise Exception("Invalid characters in identifier, only a-z A-Z 0-9 and _ are allowed.")
 
-def load_previous_model(continue_identifier, model, optimizer, la_plotter):
-    history = History()
-    
+def load_previous_model(identifier, model, optimizer, la_plotter):
     # load optimizer state
-    (success, last_epoch) = load_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, continue_identifier)
+    (success, last_epoch) = load_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, identifier)
     
     # load weights
-    (success, last_epoch) = load_weights(model, SAVE_WEIGHTS_DIR, continue_identifier)
+    (success, last_epoch) = load_weights(model, SAVE_WEIGHTS_DIR, identifier)
     
     if not success:
         raise Exception("Cannot continue previous experiment, because no weights were saved (yet?).")
     
     # load history from csv file
-    history = load_history(continue_identifier, SAVE_CSV_DIR)
+    history = History()
+    history.load_from_file("{}/{}.csv".format(SAVE_CSV_DIR, identifier))
+    history = load_history(SAVE_CSV_DIR, identifier, last_epoch=last_epoch)
     
     # update loss acc plotter
     la_plotter.values_loss_train = history.loss_train
@@ -139,7 +139,7 @@ def load_previous_model(continue_identifier, model, optimizer, la_plotter):
     
     return last_epoch, history
 
-def load_history(identifier, save_history_dir):
+def load_history(save_history_dir, identifier):
     # load previous loss/acc values per epoch from csv file
     csv_filepath = "{}/{}.csv".format(save_history_dir, identifier)
     csv_lines = open(csv_filepath, "r").readlines()
@@ -201,14 +201,16 @@ def create_model():
 
 class History(object):
     def __init__(self):
-        self.first_epoch = 1000 * 1000
-        self.last_epoch = -1
+        #self.first_epoch = 1000 * 1000
+        #self.last_epoch = -1
+        self.epochs = []
         self.loss_train = []
         self.loss_val = []
         self.acc_train = []
         self.acc_val = []
 
     def add(self, epoch, loss_train=None, loss_val=None, acc_train=None, acc_val=None):
+        self.epochs.append(epoch)
         self.loss_train.append(loss_train)
         self.loss_val.append(loss_val)
         self.acc_train.append(acc_train)
@@ -221,7 +223,7 @@ class History(object):
         for epoch, lt, lv, at, av in zip(range(start_epoch, last_epoch+1), loss_train, loss_val, acc_train, acc_val):
             self.add(epoch, loss_train=lt, loss_val=lv, acc_train=at, acc_val=av)
 
-    def save_to_file(self, csv_filepath):
+    def save_to_filepath(self, csv_filepath):
         with open(csv_filepath, "w") as fp:
             csvw = csv.writer(fp, delimiter=",")
             # header row
@@ -231,29 +233,54 @@ class History(object):
             rows.extend(zip(range(epoch+1), stats_train_loss, stats_val_loss, stats_train_acc, stats_val_acc))
             csvw.writerows(rows)
 
+    def load_from_file(self, csv_filepath, last_epoch=None):
+        # load previous loss/acc values per epoch from csv file
+        csv_lines = open(csv_filepath, "r").readlines()
+        csv_lines = csv_lines[1:] # no header
+        csv_cells = [line.strip().split(",") for line in csv_lines]
+        epochs = [int(cells[0]) for cells in csv_cells]
+        stats_loss_train = [float(cells[1]) for cells in csv_cells]
+        stats_loss_val = [float(cells[2]) for cells in csv_cells]
+        stats_acc_train = [float(cells[3]) for cells in csv_cells]
+        stats_acc_val = [float(cells[4]) for cells in csv_cells]
+        
+        if last_epoch is not None and last_epoch is not "last":
+            epochs = epochs[0:last_epoch+1]
+            stats_loss_train = stats_loss_train[0:last_epoch+1]
+            stats_loss_val = stats_loss_val[0:last_epoch+1]
+            stats_acc_train = stats_acc_train[0:last_epoch+1]
+            stats_acc_val = stats_acc_val[0:last_epoch+1]
+        
+        self.epochs = epochs
+        self.loss_train = stats_loss_train
+        self.loss_val = stats_loss_val
+        self.acc_train = stats_acc_train
+        self.acc_val = stats_acc_val
+
 def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter):
     # Loop over each epoch, i.e. executes 20 times if epochs set to 20
-    
+    # start_epoch is not 0 if we continue an older model.
     for epoch in range(epoch_start, EPOCHS):
         print("Epoch", epoch)
         
+        # Variables to collect the sums for loss and accuracy (for training and
+        # validation dataset). We will use them to calculate the loss/acc per
+        # example (which will be ploted and added to the history).
         loss_train_sum = 0
         loss_val_sum = 0
         acc_train_sum = 0
         acc_val_sum = 0
         
-        # Training (validation later)
+        # Training loop
         progbar = generic_utils.Progbar(n_examples_train)
         
-        # Iterate over each batch in the training data
-        # and train the net on those examples
         for X_batch, Y_batch in flow_batches(X_train, y_train, pca, embedder, batch_size=cfg["batch_size"], shuffle=True, train=True):
             loss, acc = model.train_on_batch(X_batch, Y_batch, accuracy=True)
             progbar.add(len(X_batch), values=[("train loss", loss), ("train acc", acc)])
             loss_train_sum += (loss * len(X_batch))
             acc_train_sum += (acc * len(X_batch))
         
-        # Validation
+        # Validation loop
         progbar = generic_utils.Progbar(n_examples_val)
         
         # Iterate over each batch in the validation data
@@ -273,27 +300,26 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter):
         
         history.add(epoch, loss_train=loss_train, loss_val=loss_val, acc_train=acc_train, acc_val=acc_val)
         
-        # ---
         # Update plots with new data from this epoch
-        # ---
+        # We start plotting _after_ the first epoch as the first one usually contains
+        # a huge fall in loss (increase in accuracy) making it harder to see the
+        # minor swings at epoch 1000 and later.
         if epoch > 0:
             la_plotter.add_values(epoch, loss_train=loss_train, loss_val=loss_val, acc_train=acc_train, acc_val=acc_val)
         
-        if cfg["save_csv_filepath"] is not None:
-            with open(cfg["save_csv_filepath"], "w") as fp:
-                csvw = csv.writer(fp, delimiter=",")
-                rows = [["epoch", "train_loss", "val_loss", "train_acc", "val_acc"]]
-                #data = data + [[r_e, r_tl, r_vl, r_ta, r_va] for r_e, r_tl, r_vl, r_ta, r_va in zip(range(epoch+1), stats_train_loss, stats_val_loss, stats_train_acc, stats_val_acc)]
-                rows.extend(zip(range(epoch+1), stats_train_loss, stats_val_loss, stats_train_acc, stats_val_acc))
-                csvw.writerows(rows)
+        # Save the history to a csv file
+        if SAVE_CSV_FILEPATH is not None:
+            csv_filepath = SAVE_CSV_FILEPATH.format(identifier=identifier)
+            history.save_to_filepath(csv_filepath)
         
-        swae = cfg["save_weights_after_epochs"]
+        # Save the weights and optimizer state to files
+        swae = SAVE_WEIGHTS_AFTER_EPOCHS
         if swae and swae > 0 and (epoch+1) % swae == 0:
             print("Saving model...")
-            #save_model(model, cfg["save_model_dir"], model_name + ".at" + str(epoch), cfg["save_model_extension"], use_gzip=cfg["save_model_gzip"])
-            #save_model_config(model, cfg["save_weights_dir"], model_name + ".at" + str(epoch) + ".config")
-            save_model_weights(model, cfg["save_weights_dir"], model_name + ".at" + str(epoch) + ".weights")
-            save_optimizer_state(optimizer, cfg["save_optimizer_state_dir"], model_name + ".at" + str(epoch) + ".optstate", overwrite=True)
+            #save_model_weights(model, cfg["save_weights_dir"], model_name + ".at" + str(epoch) + ".weights")
+            #save_optimizer_state(optimizer, cfg["save_optimizer_state_dir"], model_name + ".at" + str(epoch) + ".optstate", overwrite=True)
+            save_model_weights(model, SAVE_WEIGHTS_DIR, "{}.last.weights".format(model_name), overwrite=True)
+            save_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, "{}.last.optstate".format(model_name), overwrite=True)
 
 if __name__ == "__main__":
     main()
