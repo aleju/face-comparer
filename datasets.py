@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function
+import random
+from scipy import misc
+import os
+from collections import defaultdict
+import numpy as np
+import re
+
+IMAGE_WIDTH = 64
+IMAGE_HEIGHT = 64
 
 def filepath_to_person_name(fp):
     last_slash = fp.rfind("/")
@@ -15,8 +24,8 @@ class ImageFile(object):
     def __init__(self, directory, name):
         self.filepath = os.path.join(directory, name)
         self.filename = name
-        self.person = filepath_to_person_name(filepath)
-        self.number = filepath_to_number(filepath)
+        self.person = filepath_to_person_name(self.filepath)
+        self.number = filepath_to_number(self.filepath)
 
 class ImagePair(object):
     def __init__(self, image1, image2):
@@ -32,16 +41,17 @@ class ImagePair(object):
         # be (A,B)
         if ignore_order:
             #key = "$$$".join(sorted([fp1, fp2]))
-            key = tuple(sorted([image1.filepath, image2.filepath]))
+            key = tuple(sorted([self.image1.filepath, self.image2.filepath]))
         else:
             #key = "$$$".join([fp1, fp2])
-            key = tuple([image1.filepath, image2.filepath])
+            key = tuple([self.image1.filepath, self.image2.filepath])
         return key
 
     def get_x(self):
-        img1_x = misc.imread(self.image1)
-        img2_x = misc.imread(self.image2)
-        both = np.array([img1_x, img2_x]).astype(np.uint8)
+        img1_x = misc.imread(self.image1.filepath)
+        img2_x = misc.imread(self.image2.filepath)
+        #both = np.array([img1_x, img2_x]).astype(np.uint8)
+        both = np.concatenate([img1_x, img2_x]).astype(np.uint8)
         return both
 
 def get_image_files(dataset_filepath, exclude_images=None):
@@ -52,7 +62,7 @@ def get_image_files(dataset_filepath, exclude_images=None):
     exclude_images = exclude_images if exclude_images is not None else set()
     exclude_filenames = set()
     for image_file in exclude_images:
-        exclude_filenames.add(image_file.name)
+        exclude_filenames.add(image_file.filename)
 
     for directory, subdirs, files in os.walk(dataset_filepath):
         for name in files:
@@ -111,8 +121,8 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
     
     # Build set of filepaths to not use in image pairs (because they have
     # been used previously)
-    exclude_images = set([img1 for img1, img2, y in exclude_images]
-                         + [img2 for img1, img2, y in exclude_images])
+    exclude_images = set([img_pair.image1 for img_pair in exclude_images]
+                         + [img_pair.image2 for img_pair in exclude_images])
 
     images = get_image_files(dataset_filepath, exclude_images=exclude_images)
     
@@ -250,7 +260,7 @@ def image_pairs_to_xy(image_pairs):
          img1-smallscale+img2-smallscale,
          either [1,0] or [0,1]).
     """
-    X = np.zeros((len(image_pairs), IMAGE_WIDTH, IMAGE_HEIGHT), dtype=np.uint8)
+    X = np.zeros((len(image_pairs), IMAGE_WIDTH * 2, IMAGE_HEIGHT), dtype=np.uint8)
     y = np.zeros((len(image_pairs),), dtype=np.float32)
     
     for i, pair in enumerate(image_pairs):
