@@ -18,10 +18,12 @@ from keras.regularizers import l2
 from keras.layers.normalization import BatchNormalization
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.recurrent import GRU
+from keras.utils import generic_utils
 
 from ImageAugmenter import ImageAugmenter
 from laplotter import LossAccPlotter
 from utils import load_model, save_model_config, save_model_weights, save_optimizer_state
+from datasets import get_image_pairs, image_pairs_to_xy
 
 
 SEED = 42
@@ -51,11 +53,11 @@ random.seed(SEED)
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("identifier", help="A short name/identifier for your experiment, e.g. 'ex42b_more_dropout'.")
-    parser.add_argument("load", help="Identifier of a previous experiment that you want to continue (loads weights, optimizer state and history).")
+    parser.add_argument("--load", required=False, help="Identifier of a previous experiment that you want to continue (loads weights, optimizer state and history).")
     args = parser.parse_args()
-    validate_identifier(args.identifier)
+    validate_identifier(args.identifier, must_exist=False)
     if args.load:
-        validate_identifier(args.load, must_exist=True)
+        validate_identifier(args.load)
 
     if identifier_exists(args.identifier):
         if args.identifier != args.load:
@@ -79,6 +81,7 @@ def main():
     assert len(pairs_val) == VALIDATION_COUNT_EXAMPLES
     assert len(pairs_train) == TRAIN_COUNT_EXAMPLES
 
+    print("Converting image filepaths to X and Y arrays...")
     X_val, y_val = image_pairs_to_xy(pairs_val)
     X_train, y_train = image_pairs_to_xy(pairs_train)
 
