@@ -33,7 +33,6 @@ from Plotter import Plotter
 import matplotlib.pyplot as plt
 from util import load_model, save_model_config, save_model_weights, save_optimizer_state
 from skimage import transform
-from MyBatchNormalization import MyBatchNormalization
 
 SEED = 42
 LFWCROP_GREY_FILEPATH = "/media/aj/grab/ml/datasets/lfwcrop_grey"
@@ -43,12 +42,13 @@ VALIDATION_COUNT_EXAMPLES = 256
 TEST_COUNT_EXAMPLES = 0
 EPOCHS = 1000 * 1000
 BATCH_SIZE = 64
-SAVE_PLOT_FILEPATH = "/media/aj/ssd2a/nlp/python/nn_face_comparer/experiments/plots/{identifier}.png"
-SAVE_DISTRIBUTION_PLOT_FILEPATH = "/media/aj/ssd2a/nlp/python/nn_face_comparer/experiments/plots/{identifier}_distribution.png"
-SAVE_CSV_FILEPATH = "/media/aj/ssd2a/nlp/python/nn_face_comparer/experiments/csv/{identifier}.csv"
-SAVE_WEIGHTS_DIR = "/media/aj/ssd2a/nlp/python/nn_face_comparer/experiments/weights"
-SAVE_OPTIMIZER_STATE_DIR = "/media/aj/ssd2a/nlp/python/nn_face_comparer/experiments/optimizer_state"
-SAVE_CODE_DIR = "/media/aj/ssd2a/nlp/python/nn_face_comparer/experiments/code/{identifier}"
+SAVE_DIR = os.path.dirname(os.path.realpath(__file__)) + "/experiments"
+SAVE_PLOT_FILEPATH = "%s/plots/{identifier}.png" % (SAVE_DIR)
+SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_distribution.png" % (SAVE_DIR)
+SAVE_CSV_FILEPATH = "%s/experiments/csv/{identifier}.csv" % (SAVE_DIR)
+SAVE_WEIGHTS_DIR = "%s/experiments/weights" % (SAVE_DIR)
+SAVE_OPTIMIZER_STATE_DIR = "%s/experiments/optimizer_state" % (SAVE_DIR)
+SAVE_CODE_DIR = "%s/experiments/code/{identifier}" % (SAVE_DIR)
 SAVE_WEIGHTS_AFTER_EPOCHS = 20
 SAVE_WEIGHTS_AT_END = False
 SHOW_PLOT_WINDOWS = True
@@ -60,9 +60,18 @@ random.seed(SEED)
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("identifier")
+    parser.add_argument("identifier", help="A short name/identifier for your experiment, e.g. 'ex42b_more_dropout'.")
+    parser.add_argument("load", help="Identifier of a previous experiment that you want to continue (loads weights, optimizer state and history).")
     args = parser.parse_args()
     validate_identifier(args.identifier)
+    if args.load:
+        validate_identifier(args.load, must_exist=True)
+
+    if identifier_exists(args.identifier):
+        if args.identifier != args.load:
+            agreed = ask_continue("[WARNING] Identifier '%s' already exists and is different from load-identifier '%s'. It will be overwritten. Continue? [y/n]" % (args.identifier, args.load))
+            if not agreed:
+                return
 
     print("-----------------------")
     print("Loading validation dataset...")
@@ -83,12 +92,14 @@ def main():
     X_val, y_val = image_pairs_to_xy(pairs_val)
     X_train, y_train = image_pairs_to_xy(pairs_train)
 
+    """
     plot_person_img_distribution(
         img_filepaths_test, img_filepaths_val, img_filepaths_train,
         only_y_value=Y_SAME,
         show_plot_windows=SHOW_PLOT_WINDOWS,
         save_to_filepath=SAVE_DISTRIBUTION_PLOT_FILEPATH
     )
+    """
 
     print("Creating model...")
     model, optimizer = create_model()
@@ -112,9 +123,25 @@ def main():
     
     print("Finished.")
 
-def validate_identifier(identifier):
+def validate_identifier(identifier, must_exist=True):
     if not identifier or identifier != re.sub("[^a-zA-Z0-9_]", "", identifier):
         raise Exception("Invalid characters in identifier, only a-z A-Z 0-9 and _ are allowed.")
+    if must_exist:
+        if not identifier_exists(identifier):
+            raise Exception("No model with identifier '{}' seems to exist.".format(identifier))
+
+def identifier_exists(identifier):
+    filepath = SAVE_CSV_FILEPATH.format(identifier=identifier)
+    if os.path.isfile(filepath):
+        return True
+    else:
+        return False
+
+def ask_continue(message):
+    choice = raw_input(message)
+    while choice not in ["y", "n"]:
+        choice = raw_input("Enter 'y' (yes) or 'n' (no) to continue.")
+    return choice == "y"
 
 def load_previous_model(identifier, model, optimizer, la_plotter):
     # load optimizer state
@@ -167,27 +194,35 @@ def load_history(save_history_dir, identifier):
 def create_model():
     model = Sequential()
     
-    model.add(Convolution2D(32, 1, 3, 3, border_mode='full'))
+    # 32 x 32+2 x 32+2 = 32x34x34
+    model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.00))
-    model.add(Convolution2D(32, 32, 3, 3, border_mode='full'))
+    # 32 x 34-2 x 34-2 = 32x32x32
+    model.add(Convolution2D(32, 32, 3, 3, border_mode="valid"))
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.00))
+    
+    # 32 x 32/2 x 32/2 = 32x16x16
     model.add(MaxPooling2D(poolsize=(2, 2)))
     
-    model.add(Convolution2D(64, 32, 3, 3, border_mode='full'))
+    # 64 x 16-2 x 16-2 = 64x14x14
+    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.00))
-    model.add(Convolution2D(64, 64, 3, 3, border_mode='full'))
+    # 64 x 14-2 x 14-2 = 64x12x12
+    model.add(Convolution2D(64, 64, 3, 3, border_mode="valid"))
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.50))
     
-    model.add(Reshape(64*4, int(836/4)))
-    model.add(MyBatchNormalization((64*4, int(836/4))))
+    # 64x14x14 = 64x196 = 12544
+    # In 64*4 slices: 64*4 x 196/4 = 256x49
+    model.add(Reshape(64*4, int(196/4)))
+    model.add(BatchNormalization((64*4, int(196/4))))
     
-    model.add(GRU(836/4, 64, return_sequences=True))
+    model.add(GRU(196/4, 64, return_sequences=True))
     model.add(Flatten())
-    model.add(MyBatchNormalization((64*(64*4),)))
+    model.add(BatchNormalization((64*(64*4),)))
     model.add(Dropout(0.50))
     model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
     model.add(Activation("sigmoid"))
