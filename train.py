@@ -1,38 +1,28 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function
 
-import time
-import datetime
 import sys
 import random
 import os
-import math
 import re
 import numpy as np
-import copy
 import csv
-from collections import defaultdict
-from scipy import misc
-from sklearn.decomposition import PCA
-from sklearn import manifold
-from sklearn import decomposition
+import argparse
+#import matplotlib.pyplot as plt
 
 from keras.models import Sequential
-from keras.layers.core import Dense, MaxoutDense, Dropout, Reshape, Flatten, Activation
+from keras.layers.core import Dense, Dropout, Reshape, Flatten, Activation
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
-from keras.optimizers import Adagrad, SGD
-from keras.regularizers import l2, l1
+from keras.optimizers import Adagrad
+from keras.regularizers import l2
 from keras.layers.normalization import BatchNormalization
-from keras.utils import generic_utils
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.recurrent import GRU
 
 from ImageAugmenter import ImageAugmenter
-from MyMerge import MyMerge
-from Plotter import Plotter
-import matplotlib.pyplot as plt
-from util import load_model, save_model_config, save_model_weights, save_optimizer_state
-from skimage import transform
+from laplotter import LossAccPlotter
+from utils import load_model, save_model_config, save_model_weights, save_optimizer_state
+
 
 SEED = 42
 LFWCROP_GREY_FILEPATH = "/media/aj/grab/ml/datasets/lfwcrop_grey"
