@@ -62,6 +62,7 @@ def get_image_files(dataset_filepath, exclude_images=None):
     images = sorted(images, key=lambda image: image.filename)
     return images
 
+"""
 def get_filepaths_by_name(dataset_filepath, seed=None):
     filepaths = get_filepaths(dataset_filepath, seed=seed)
     images = []
@@ -72,8 +73,9 @@ def get_filepaths_by_name(dataset_filepath, seed=None):
     images_by_person = defaultdict(list)
     for (img_fp, img_person_name) in images:
         images_by_person[img_person_name].append(img_fp)
+"""
 
-def get_filepath_pairs(dataset_filepath, pairs_of_same_imgs=False, ignore_order=True, nb_max=20000, not_in=list(), seed=None, verbose=False):
+def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_order=True, exclude_images=list(), seed=None, verbose=False):
     """Creates a list of tuples (filepath1, filepath1, (int)same_person)
     from images in a directory. 'filepath1' and 'filepath2' are the 
     full filepaths to images. 'same_person?' is 1 (int) if both images
