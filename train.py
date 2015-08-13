@@ -8,7 +8,10 @@ import re
 import numpy as np
 import csv
 import argparse
+import math
 #import matplotlib.pyplot as plt
+
+from scipy import misc # for resizing of images
 
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Reshape, Flatten, Activation
@@ -37,10 +40,10 @@ BATCH_SIZE = 64
 SAVE_DIR = os.path.dirname(os.path.realpath(__file__)) + "/experiments"
 SAVE_PLOT_FILEPATH = "%s/plots/{identifier}.png" % (SAVE_DIR)
 SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_distribution.png" % (SAVE_DIR)
-SAVE_CSV_FILEPATH = "%s/experiments/csv/{identifier}.csv" % (SAVE_DIR)
-SAVE_WEIGHTS_DIR = "%s/experiments/weights" % (SAVE_DIR)
-SAVE_OPTIMIZER_STATE_DIR = "%s/experiments/optimizer_state" % (SAVE_DIR)
-SAVE_CODE_DIR = "%s/experiments/code/{identifier}" % (SAVE_DIR)
+SAVE_CSV_FILEPATH = "%s/csv/{identifier}.csv" % (SAVE_DIR)
+SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
+SAVE_OPTIMIZER_STATE_DIR = "%s/optstate" % (SAVE_DIR)
+SAVE_CODE_DIR = "%s/code/{identifier}" % (SAVE_DIR)
 SAVE_WEIGHTS_AFTER_EPOCHS = 20
 SAVE_WEIGHTS_AT_END = False
 SHOW_PLOT_WINDOWS = True
@@ -81,7 +84,7 @@ def main():
     assert len(pairs_val) == VALIDATION_COUNT_EXAMPLES
     assert len(pairs_train) == TRAIN_COUNT_EXAMPLES
 
-    print("Converting image filepaths to X and Y arrays...")
+    print("Loading image contents from hard drive...")
     X_val, y_val = image_pairs_to_xy(pairs_val)
     X_train, y_train = image_pairs_to_xy(pairs_train)
 
@@ -103,6 +106,12 @@ def main():
     random.seed(SEED)
 
     la_plotter = LossAccPlotter(save_to_filepath=SAVE_PLOT_FILEPATH.format(identifier=args.identifier))
+    ia_train = ImageAugmenter(64, 64, hflip=True, vflip=False,
+                              scale_to_percent=1.15, scale_axis_equally=False,
+                              rotation_deg=25, shear_deg=8,
+                              translation_x_px=7, translation_y_px=7)
+    ia_train.pregenerate_matrices(10000)
+    ia_val = ImageAugmenter(64, 64)
 
     if args.load:
         print("Loading previous model...")
@@ -112,7 +121,7 @@ def main():
         history = History()
     
     print("Training...")
-    train_loop(args.identifier, model, optimizer, epoch_start, history, la_plotter)
+    train_loop(args.identifier, model, optimizer, epoch_start, history, la_plotter, ia_train, ia_val, X_train, y_train, X_val, y_val)
     
     print("Finished.")
 
@@ -187,33 +196,33 @@ def load_history(save_history_dir, identifier):
 def create_model():
     model = Sequential()
     
-    # 32 x 32+2 x 32+2 = 32x34x34
+    # 32 x 32+2 x 64+2 = 32x34x66
     model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.00))
-    # 32 x 34-2 x 34-2 = 32x32x32
+    # 32 x 34-2 x 66-2 = 32x32x64
     model.add(Convolution2D(32, 32, 3, 3, border_mode="valid"))
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.00))
     
-    # 32 x 32/2 x 32/2 = 32x16x16
+    # 32 x 32/2 x 64/2 = 32x16x32
     model.add(MaxPooling2D(poolsize=(2, 2)))
     
-    # 64 x 16-2 x 16-2 = 64x14x14
+    # 64 x 16-2 x 32-2 = 64x14x30
     model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.00))
-    # 64 x 14-2 x 14-2 = 64x12x12
+    # 64 x 14-2 x 30-2 = 64x12x28
     model.add(Convolution2D(64, 64, 3, 3, border_mode="valid"))
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.50))
     
-    # 64x14x14 = 64x196 = 12544
-    # In 64*4 slices: 64*4 x 196/4 = 256x49
-    model.add(Reshape(64*4, int(196/4)))
-    model.add(BatchNormalization((64*4, int(196/4))))
+    # 64x12x28 = 64x336 = 21504
+    # In 64*4 slices: 64*4 x 336/4 = 256x84
+    model.add(Reshape(64*4, int(336/4)))
+    model.add(BatchNormalization((64*4, int(336/4))))
     
-    model.add(GRU(196/4, 64, return_sequences=True))
+    model.add(GRU(336/4, 64, return_sequences=True))
     model.add(Flatten())
     model.add(BatchNormalization((64*(64*4),)))
     model.add(Dropout(0.50))
@@ -243,8 +252,8 @@ class History(object):
         self.loss_val.append(loss_val)
         self.acc_train.append(acc_train)
         self.acc_val.append(acc_val)
-        self.first_epoch = min(self.first_epoch, epoch)
-        self.last_epoch = max(self.last_epoch, epoch)
+        #self.first_epoch = min(self.first_epoch, epoch)
+        #self.last_epoch = max(self.last_epoch, epoch)
 
     def add_all(self, start_epoch, loss_train, loss_val, acc_train, acc_val):
         last_epoch = start_epoch + len(loss_train)
@@ -258,7 +267,7 @@ class History(object):
             rows = [["epoch", "train_loss", "val_loss", "train_acc", "val_acc"]]
             
             #data = data + [[r_e, r_tl, r_vl, r_ta, r_va] for r_e, r_tl, r_vl, r_ta, r_va in zip(range(epoch+1), stats_train_loss, stats_val_loss, stats_train_acc, stats_val_acc)]
-            rows.extend(zip(range(epoch+1), stats_train_loss, stats_val_loss, stats_train_acc, stats_val_acc))
+            rows.extend(zip(self.epochs, self.loss_train, self.loss_val, self.acc_train, self.acc_val))
             csvw.writerows(rows)
 
     def load_from_file(self, csv_filepath, last_epoch=None):
@@ -285,7 +294,7 @@ class History(object):
         self.acc_train = stats_acc_train
         self.acc_val = stats_acc_val
 
-def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter):
+def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter, ia_train, ia_val, X_train, y_train, X_val, y_val):
     # Loop over each epoch, i.e. executes 20 times if epochs set to 20
     # start_epoch is not 0 if we continue an older model.
     for epoch in range(epoch_start, EPOCHS):
@@ -299,32 +308,35 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter):
         acc_train_sum = 0
         acc_val_sum = 0
         
-        # Training loop
-        progbar = generic_utils.Progbar(n_examples_train)
+        nb_examples_train = X_train.shape[0]
+        nb_examples_val = X_val.shape[0]
         
-        for X_batch, Y_batch in flow_batches(X_train, y_train, pca, embedder, batch_size=cfg["batch_size"], shuffle=True, train=True):
+        # Training loop
+        progbar = generic_utils.Progbar(nb_examples_train)
+        
+        for X_batch, Y_batch in flow_batches(X_train, y_train, ia_train, shuffle=True, train=True):
             loss, acc = model.train_on_batch(X_batch, Y_batch, accuracy=True)
             progbar.add(len(X_batch), values=[("train loss", loss), ("train acc", acc)])
             loss_train_sum += (loss * len(X_batch))
             acc_train_sum += (acc * len(X_batch))
         
         # Validation loop
-        progbar = generic_utils.Progbar(n_examples_val)
+        progbar = generic_utils.Progbar(nb_examples_val)
         
         # Iterate over each batch in the validation data
         # and calculate loss and accuracy for each batch
-        for X_batch, Y_batch in flow_batches(X_val, y_val, pca, embedder, batch_size=cfg["batch_size"], shuffle=False, train=False):
+        for X_batch, Y_batch in flow_batches(X_val, y_val, ia_val, shuffle=False, train=False):
             loss, acc = model.test_on_batch(X_batch, Y_batch, accuracy=True)
             progbar.add(len(X_batch), values=[("val loss", loss), ("val acc", acc)])
-            loss_val_sum += loss
-            acc_val_sum += acc
+            loss_val_sum += (loss * len(X_batch))
+            acc_val_sum += (acc * len(X_batch))
 
         # Calculate the loss and accuracy for this epoch
         # (averaged over all training data batches)
-        loss_train = loss_train_sum / len(X_train)
-        acc_train = acc_train_sum / len(X_train)
-        loss_val = loss_val_sum / len(X_val)
-        acc_val = acc_val_sum / len(X_val)
+        loss_train = loss_train_sum / nb_examples_train
+        acc_train = acc_train_sum / nb_examples_train
+        loss_val = loss_val_sum / nb_examples_val
+        acc_val = acc_val_sum / nb_examples_val
         
         history.add(epoch, loss_train=loss_train, loss_val=loss_val, acc_train=acc_train, acc_val=acc_val)
         
@@ -348,6 +360,86 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter):
             #save_optimizer_state(optimizer, cfg["save_optimizer_state_dir"], model_name + ".at" + str(epoch) + ".optstate", overwrite=True)
             save_model_weights(model, SAVE_WEIGHTS_DIR, "{}.last.weights".format(model_name), overwrite=True)
             save_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, "{}.last.optstate".format(model_name), overwrite=True)
+
+def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=False):
+    """Uses the datasets for the branches of the convnet and the pca
+    and returns them batch by batch, transformed via the data generators.
+    
+    This method is largely copied from kera's ImageDataGenerator.flow_batches().
+    
+    Args:
+        X_conv: Images for the convnet branch (32x32)
+        X_pca: Images for the pca branch (64x64)
+        dg_conv: Datagenerator for the convnet branch (e.g. randomly
+            rotates images and other stuff).
+        dg_pca: Datagenerator for the pca branch.
+        pca: The fitted scikit PCA object.
+        batch_size: Size of the batches to return.
+        shuffle: Whether to shuffle the images before starting to return
+            any batches.
+    Returns:
+        Batches/Tuples of ([convnet batch, pca batch], y)
+        (one by one via yield).
+    """
+    
+    # Shuffle the datasets before starting to return batches
+    if shuffle:
+        X = np.copy(X_in)
+        y = np.copy(y_in)
+
+        state = np.random.get_state()
+        seed = random.randint(1, 10e6)
+        np.random.seed(seed)
+        np.random.shuffle(X)
+        np.random.seed(seed)
+        np.random.shuffle(y)
+        np.random.set_state(state)
+    else:
+        X = X_in
+        y = y_in
+    
+    # Iterate over every possible batch and collect the examples
+    # for that batch
+    nb_examples = X.shape[0]
+    nb_batch = int(math.ceil(float(nb_examples)/batch_size))
+    for b in range(nb_batch):
+        batch_end = (b+1)*batch_size
+        if batch_end > nb_examples:
+            nb_samples = nb_examples - b*batch_size
+        else:
+            nb_samples = batch_size
+        
+        # Collect the examples for the convnet-batch,
+        # use the data generator to randomly transform each example
+        batch_start_idx = b*batch_size
+        batch = X[batch_start_idx:batch_start_idx + nb_samples]
+        
+        # augment images
+        batch_img1 = batch[:, 0, ...] # left images
+        batch_img2 = batch[:, 1, ...] # right images
+        batch_img1 = ia.augment_batch(batch_img1)
+        batch_img2 = ia.augment_batch(batch_img2)
+        
+        X_batch = np.zeros((nb_samples, 1, 32, 64))
+        for i in range(nb_samples):
+            # sometimes switch positions (left/right) of images during training
+            if train and random.random() < 0.5:
+                img1 = batch_img2[i]
+                img2 = batch_img1[i]
+            else:
+                img1 = batch_img2[i]
+                img2 = batch_img1[i]
+
+            # downsize images
+            # note: imresize projects the image into 0-255, even if it was 0-1.0 before
+            img1 = misc.imresize(img1, (32, 32)) / 255.0
+            img2 = misc.imresize(img2, (32, 32)) / 255.0
+            X_batch[i] = np.concatenate((img1, img2), axis=1)
+        
+        # Collect the y values for the batch
+        y_batch = np.copy(y[batch_start_idx:batch_start_idx + nb_samples])
+
+        yield X_batch, y_batch
 
 if __name__ == "__main__":
     main()
