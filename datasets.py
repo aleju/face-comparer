@@ -50,8 +50,8 @@ class ImagePair(object):
     def get_x(self):
         img1_x = misc.imread(self.image1.filepath)
         img2_x = misc.imread(self.image2.filepath)
-        #both = np.array([img1_x, img2_x]).astype(np.uint8)
-        both = np.concatenate([img1_x, img2_x]).astype(np.uint8)
+        both = np.array([img1_x, img2_x]).astype(np.uint8)
+        #both = np.concatenate([img1_x, img2_x]).astype(np.uint8)
         return both
 
 def get_image_files(dataset_filepath, exclude_images=None):
@@ -260,7 +260,7 @@ def image_pairs_to_xy(image_pairs):
          img1-smallscale+img2-smallscale,
          either [1,0] or [0,1]).
     """
-    X = np.zeros((len(image_pairs), IMAGE_WIDTH * 2, IMAGE_HEIGHT), dtype=np.uint8)
+    X = np.zeros((len(image_pairs), 2, IMAGE_WIDTH, IMAGE_HEIGHT), dtype=np.uint8)
     y = np.zeros((len(image_pairs),), dtype=np.float32)
     
     for i, pair in enumerate(image_pairs):

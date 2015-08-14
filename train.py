@@ -25,7 +25,7 @@ from keras.utils import generic_utils
 
 from ImageAugmenter import ImageAugmenter
 from laplotter import LossAccPlotter
-from utils import load_model, save_model_config, save_model_weights, save_optimizer_state
+from utils import save_model_weights, save_optimizer_state, load_weights, load_optimizer_state
 from datasets import get_image_pairs, image_pairs_to_xy
 
 
@@ -44,8 +44,8 @@ SAVE_CSV_FILEPATH = "%s/csv/{identifier}.csv" % (SAVE_DIR)
 SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
 SAVE_OPTIMIZER_STATE_DIR = "%s/optstate" % (SAVE_DIR)
 SAVE_CODE_DIR = "%s/code/{identifier}" % (SAVE_DIR)
-SAVE_WEIGHTS_AFTER_EPOCHS = 20
-SAVE_WEIGHTS_AT_END = False
+SAVE_WEIGHTS_AFTER_EPOCHS = 1
+#SAVE_WEIGHTS_AT_END = False
 SHOW_PLOT_WINDOWS = True
 Y_SAME = 1
 Y_DIFFERENT = 0
@@ -57,6 +57,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("identifier", help="A short name/identifier for your experiment, e.g. 'ex42b_more_dropout'.")
     parser.add_argument("--load", required=False, help="Identifier of a previous experiment that you want to continue (loads weights, optimizer state and history).")
+    parser.add_argument("--dropout", required=False, help="Dropout rate (0.0 - 1.0) after the last conv-layer and after the GRU layer.")
     args = parser.parse_args()
     validate_identifier(args.identifier, must_exist=False)
     if args.load:
@@ -98,7 +99,7 @@ def main():
     """
 
     print("Creating model...")
-    model, optimizer = create_model()
+    model, optimizer = create_model(args.dropout)
     
     # Calling the compile method seems to mess with the seeds (theano problem?)
     # Therefore they are reset here (numpy seeds seem to be unaffected)
@@ -148,8 +149,12 @@ def ask_continue(message):
 def load_previous_model(identifier, model, optimizer, la_plotter):
     # load optimizer state
     (success, last_epoch) = load_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, identifier)
+    if not success:
+        print("[WARNING] could not successfully load optimizer state of identifier '{}'.".format(identifier))
     
     # load weights
+    # we overwrite the results of the optimizer loading here, because errors
+    # there are not very important, we can still go on training.
     (success, last_epoch) = load_weights(model, SAVE_WEIGHTS_DIR, identifier)
     
     if not success:
@@ -157,17 +162,20 @@ def load_previous_model(identifier, model, optimizer, la_plotter):
     
     # load history from csv file
     history = History()
-    history.load_from_file("{}/{}.csv".format(SAVE_CSV_DIR, identifier))
-    history = load_history(SAVE_CSV_DIR, identifier, last_epoch=last_epoch)
+    #history.load_from_file("{}/{}.csv".format(SAVE_CSV_DIR, identifier))
+    history.load_from_file(SAVE_CSV_FILEPATH.format(identifier=identifier), last_epoch=last_epoch)
+    #history = load_history(SAVE_CSV_DIR, identifier, last_epoch=last_epoch)
     
     # update loss acc plotter
-    la_plotter.values_loss_train = history.loss_train
-    la_plotter.values_loss_val = history.loss_val
-    la_plotter.values_acc_train = history.acc_train
-    la_plotter.values_acc_val = history.acc_val
+    for i, epoch in enumerate(history.epochs):
+        la_plotter.add_values(epoch,
+                              loss_train=history.loss_train[i], loss_val=history.loss_val[i],
+                              acc_train=history.acc_train[i], acc_val=history.acc_val[i],
+                              redraw=False)
     
-    return last_epoch, history
+    return history.epochs[-1], history
 
+"""
 def load_history(save_history_dir, identifier):
     # load previous loss/acc values per epoch from csv file
     csv_filepath = "{}/{}.csv".format(save_history_dir, identifier)
@@ -192,8 +200,12 @@ def load_history(save_history_dir, identifier):
                     stats_acc_train[0:start_epoch],
                     stats_acc_val[0:start_epoch])
     return history
+"""
 
-def create_model():
+def create_model(dropout=None):
+    dropout = float(dropout) if dropout is not None else 0.00
+    print("Dropout will be set to {}".format(dropout))
+    
     model = Sequential()
     
     # 32 x 32+2 x 64+2 = 32x34x66
@@ -215,7 +227,7 @@ def create_model():
     # 64 x 14-2 x 30-2 = 64x12x28
     model.add(Convolution2D(64, 64, 3, 3, border_mode="valid"))
     model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.50))
+    model.add(Dropout(dropout))
     
     # 64x12x28 = 64x336 = 21504
     # In 64*4 slices: 64*4 x 336/4 = 256x84
@@ -225,7 +237,8 @@ def create_model():
     model.add(GRU(336/4, 64, return_sequences=True))
     model.add(Flatten())
     model.add(BatchNormalization((64*(64*4),)))
-    model.add(Dropout(0.50))
+    model.add(Dropout(dropout))
+    
     model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
     model.add(Activation("sigmoid"))
 
@@ -358,8 +371,8 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter, i
             print("Saving model...")
             #save_model_weights(model, cfg["save_weights_dir"], model_name + ".at" + str(epoch) + ".weights")
             #save_optimizer_state(optimizer, cfg["save_optimizer_state_dir"], model_name + ".at" + str(epoch) + ".optstate", overwrite=True)
-            save_model_weights(model, SAVE_WEIGHTS_DIR, "{}.last.weights".format(model_name), overwrite=True)
-            save_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, "{}.last.optstate".format(model_name), overwrite=True)
+            save_model_weights(model, SAVE_WEIGHTS_DIR, "{}.last.weights".format(identifier), overwrite=True)
+            save_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, "{}.last.optstate".format(identifier), overwrite=True)
 
 def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=False):
     """Uses the datasets for the branches of the convnet and the pca
