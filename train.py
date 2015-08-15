@@ -14,9 +14,9 @@ import math
 from scipy import misc # for resizing of images
 
 from keras.models import Sequential
-from keras.layers.core import Dense, Dropout, Reshape, Flatten, Activation
+from keras.layers.core import Dense, Dropout, Reshape, Flatten, Activation, TimeDistributedDense
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
-from keras.optimizers import Adagrad
+from keras.optimizers import Adagrad, Adam
 from keras.regularizers import l2
 from keras.layers.normalization import BatchNormalization
 from keras.layers.advanced_activations import LeakyReLU
@@ -57,7 +57,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("identifier", help="A short name/identifier for your experiment, e.g. 'ex42b_more_dropout'.")
     parser.add_argument("--load", required=False, help="Identifier of a previous experiment that you want to continue (loads weights, optimizer state and history).")
-    parser.add_argument("--dropout", required=False, help="Dropout rate (0.0 - 1.0) after the last conv-layer and after the GRU layer.")
+    parser.add_argument("--dropout", required=False, help="Dropout rate (0.0 - 1.0) after the last conv-layer and after the GRU layer. Default is 0.0.")
+    parser.add_argument("--augmul", required=False, help="Multiplicator for the augmentation (0.0=no augmentation, 1.0=normal aug., 2.0=rather strong aug.). Default is 1.0.")
     args = parser.parse_args()
     validate_identifier(args.identifier, must_exist=False)
     if args.load:
@@ -68,6 +69,9 @@ def main():
             agreed = ask_continue("[WARNING] Identifier '%s' already exists and is different from load-identifier '%s'. It will be overwritten. Continue? [y/n]" % (args.identifier, args.load))
             if not agreed:
                 return
+
+    if args.augmul is None:
+        args.augmul = 1.0
 
     print("-----------------------")
     print("Loading validation dataset...")
@@ -100,6 +104,8 @@ def main():
 
     print("Creating model...")
     model, optimizer = create_model(args.dropout)
+    #model, optimizer = create_model_full_border(args.dropout)
+    #model, optimizer = create_model_td_dense(args.dropout)
     
     # Calling the compile method seems to mess with the seeds (theano problem?)
     # Therefore they are reset here (numpy seeds seem to be unaffected)
@@ -107,11 +113,21 @@ def main():
     random.seed(SEED)
 
     la_plotter = LossAccPlotter(save_to_filepath=SAVE_PLOT_FILEPATH.format(identifier=args.identifier))
+    """
     ia_train = ImageAugmenter(64, 64, hflip=True, vflip=False,
                               scale_to_percent=1.15, scale_axis_equally=False,
                               rotation_deg=25, shear_deg=8,
                               translation_x_px=7, translation_y_px=7)
-    ia_train.pregenerate_matrices(10000)
+    """
+    augmul = float(args.augmul)
+    ia_train = ImageAugmenter(64, 64, hflip=True, vflip=False,
+                              scale_to_percent=1.0 + (0.05*augmul),
+                              scale_axis_equally=False,
+                              rotation_deg=int(5*augmul),
+                              shear_deg=int(4*augmul),
+                              translation_x_px=int(4*augmul),
+                              translation_y_px=int(4*augmul))
+    ia_train.pregenerate_matrices(15000)
     ia_val = ImageAugmenter(64, 64)
 
     if args.load:
@@ -243,6 +259,104 @@ def create_model(dropout=None):
     model.add(Activation("sigmoid"))
 
     optimizer = Adagrad()
+    
+    print("Compiling model...")
+    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
+    
+    return model, optimizer
+
+def create_model_full_border(dropout=None):
+    dropout = float(dropout) if dropout is not None else 0.00
+    print("Dropout will be set to {}".format(dropout))
+    
+    model = Sequential()
+    
+    # 32 x 32+2 x 64+2 = 32x34x66
+    model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    # 32 x 34+2 x 66+2 = 32x36x68
+    model.add(Convolution2D(32, 32, 3, 3, border_mode="full"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    
+    # 32 x 36/2 x 68/2 = 32x18x34
+    model.add(MaxPooling2D(poolsize=(2, 2)))
+    
+    # 64 x 18+2 x 34+2 = 64x20x36
+    model.add(Convolution2D(64, 32, 3, 3, border_mode="full"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    # 64 x 20+2 x 36+2 = 64x22x38
+    model.add(Convolution2D(64, 64, 3, 3, border_mode="full"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(dropout))
+    
+    # 64x22x38 = 64x836 = 53504
+    # In 64*4 slices: 64*4 x 836/4 = 256x209
+    model.add(Reshape(64*4, int(836/4)))
+    model.add(BatchNormalization((64*4, int(836/4))))
+    
+    model.add(GRU(836/4, 64, return_sequences=True))
+    model.add(Flatten())
+    model.add(BatchNormalization((64*(64*4),)))
+    model.add(Dropout(dropout))
+    
+    model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
+    model.add(Activation("sigmoid"))
+
+    optimizer = Adagrad()
+    
+    print("Compiling model...")
+    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
+    
+    return model, optimizer
+
+def create_model_td_dense(dropout=None):
+    dropout = float(dropout) if dropout is not None else 0.00
+    print("Dropout will be set to {}".format(dropout))
+    
+    model = Sequential()
+    
+    # 8 x 32+2 x 64+2 = 8x34x66
+    model.add(Convolution2D(8, 1, 3, 3, border_mode="full"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    # 16 x 34-2 x 66-2 = 16x32x64
+    model.add(Convolution2D(16, 8, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    
+    # 16 x 32/2 x 64/2 = 16x16x32
+    model.add(MaxPooling2D(poolsize=(2, 2)))
+    
+    # 32 x 16-2 x 32-2 = 32x14x30
+    model.add(Convolution2D(32, 16, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    # 64 x 14-2 x 30-2 = 64x12x28
+    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    
+    # 64 x 12/2 x 28/2 = 64x6x14
+    model.add(MaxPooling2D(poolsize=(2, 2)))
+    
+    # 64x6x14 = 64x84 = 5376
+    # In 64*4 slices: 64*4 x 84/4 = 256x21
+    model.add(Reshape(64*4, 84//4))
+    model.add(BatchNormalization((64*4, 84//4)))
+    model.add(Dropout(dropout))
+    
+    model.add(TimeDistributedDense(84//4, 1, init="glorot_uniform", W_regularizer=l2(0.00001)))
+    model.add(Activation("sigmoid"))
+    model.add(Flatten())
+    model.add(Dropout(0.00))
+    
+    model.add(Dense(256, 1, init="glorot_uniform", W_regularizer=l2(0.00001)))
+    model.add(Activation("sigmoid"))
+
+    #optimizer = Adagrad()
+    optimizer = Adam()
     
     print("Compiling model...")
     model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
@@ -440,17 +554,20 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
                 img1 = batch_img2[i]
                 img2 = batch_img1[i]
             else:
-                img1 = batch_img2[i]
-                img2 = batch_img1[i]
+                img1 = batch_img1[i]
+                img2 = batch_img2[i]
 
             # downsize images
             # note: imresize projects the image into 0-255, even if it was 0-1.0 before
             img1 = misc.imresize(img1, (32, 32)) / 255.0
             img2 = misc.imresize(img2, (32, 32)) / 255.0
             X_batch[i] = np.concatenate((img1, img2), axis=1)
+            #print("X_batch.shape", X_batch.shape)
+            #print("X_batch[i].shape", X_batch[i].shape)
+            #misc.imshow(np.squeeze(X_batch[i]))
         
         # Collect the y values for the batch
-        y_batch = np.copy(y[batch_start_idx:batch_start_idx + nb_samples])
+        y_batch = y[batch_start_idx:batch_start_idx + nb_samples]
 
         yield X_batch, y_batch
 

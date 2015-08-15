@@ -39,12 +39,13 @@ class ImagePair(object):
         # therefore, the key used to check if a pair already exists must then
         # catch both cases (A,B) and (B,A), i.e. it must be sorted to always
         # be (A,B)
+        fps = [self.image1.filepath, self.image2.filepath]
         if ignore_order:
-            #key = "$$$".join(sorted([fp1, fp2]))
-            key = tuple(sorted([self.image1.filepath, self.image2.filepath]))
+            key = "$$$".join(sorted(fps))
+            #key = tuple(sorted([self.image1.filepath, self.image2.filepath]))
         else:
-            #key = "$$$".join([fp1, fp2])
-            key = tuple([self.image1.filepath, self.image2.filepath])
+            key = "$$$".join(fps)
+            #key = tuple([self.image1.filepath, self.image2.filepath])
         return key
 
     def get_x(self):

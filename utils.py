@@ -68,9 +68,19 @@ def save_optimizer_state(optimizer, file_dir, file_name, overwrite=False):
     group = f.create_group('updates')
     group.attrs['nb_updates'] = len(state)
     for n, update in enumerate(state):
+        is_scalar = True if len(update.shape) == 0 else False
+        shape = (1,) if is_scalar else update.shape
+        #uplen = len(np.atleast_1d(update)) # catch case where update-array is 1d-scalar
+        
         update_name = 'update_{}'.format(n)
-        update_dset = group.create_dataset(update_name, update.shape, dtype=update.dtype)
-        update_dset[:] = update
+        #update_dset = group.create_dataset(update_name, update.shape, dtype=update.dtype)
+        update_dset = group.create_dataset(update_name, shape, dtype=update.dtype)
+        
+        #print(update, type(update), update.shape, shape) #, len(update))
+        if not is_scalar > 1:
+            update_dset[:] = update
+        else:
+            update_dset[0] = update[0]
 
     f.flush()
     f.close()
