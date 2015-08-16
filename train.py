@@ -1,4 +1,27 @@
 # -*- coding: utf-8 -*-
+"""The main training file.
+Traings a neural net to compare pairs of faces with each other.
+
+Call this file in the following way:
+
+    python train.py name_of_experiment
+
+or more complex:
+
+    python train.py name_of_experiment --load="old_experiment_name" --dropout=0.0 --augmul=1.0
+
+where
+    name_of_experiment:
+        Is the name of this experiment, used when saving data, e.g. "exp5_more_dropout".
+    --load="old_experiment_name":
+        Is the name of an old experiment to continue. Must have the identical
+        network architecture and optimizer as the new network.
+    --dropout=0.0:
+        Dropout strength to use for the last two dropout layers.
+    --augmul=1.0:
+        Augmentation strength to use when augmentating images (e.g. rotation, shift).
+        0.5 is weak, 1.0 is normal, 1.5+ is strong.
+"""
 from __future__ import absolute_import, division, print_function
 
 import sys
@@ -53,8 +76,12 @@ np.random.seed(SEED)
 random.seed(SEED)
 
 def main():
-    """Main function. Load datasets, initialize network, initialize training
-    looper and then train (+validate)."""
+    """Main function.
+    1. Handle console arguments,
+    2. Load datasets,
+    3. Initialize network,
+    4. Initialize training looper
+    5. Train (+validate)."""
     
     # handle arguments from command line
     parser = argparse.ArgumentParser()
