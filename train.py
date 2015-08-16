@@ -21,6 +21,7 @@ from keras.regularizers import l2
 from keras.layers.normalization import BatchNormalization
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.recurrent import GRU
+from keras.layers.noise import GaussianNoise, GaussianDropout
 from keras.utils import generic_utils
 
 from ImageAugmenter import ImageAugmenter
@@ -28,11 +29,10 @@ from laplotter import LossAccPlotter
 from utils import save_model_weights, save_optimizer_state, load_weights, load_optimizer_state
 from datasets import get_image_pairs, image_pairs_to_xy
 
-
 SEED = 42
 LFWCROP_GREY_FILEPATH = "/media/aj/grab/ml/datasets/lfwcrop_grey"
 IMAGES_FILEPATH = LFWCROP_GREY_FILEPATH + "/faces"
-TRAIN_COUNT_EXAMPLES = 20000
+TRAIN_COUNT_EXAMPLES = 10000
 VALIDATION_COUNT_EXAMPLES = 256
 TEST_COUNT_EXAMPLES = 0
 EPOCHS = 1000 * 1000
@@ -45,7 +45,6 @@ SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
 SAVE_OPTIMIZER_STATE_DIR = "%s/optstate" % (SAVE_DIR)
 SAVE_CODE_DIR = "%s/code/{identifier}" % (SAVE_DIR)
 SAVE_WEIGHTS_AFTER_EPOCHS = 1
-#SAVE_WEIGHTS_AT_END = False
 SHOW_PLOT_WINDOWS = True
 Y_SAME = 1
 Y_DIFFERENT = 0
@@ -54,6 +53,10 @@ np.random.seed(SEED)
 random.seed(SEED)
 
 def main():
+    """Main function. Load datasets, initialize network, initialize training
+    looper and then train (+validate)."""
+    
+    # handle arguments from command line
     parser = argparse.ArgumentParser()
     parser.add_argument("identifier", help="A short name/identifier for your experiment, e.g. 'ex42b_more_dropout'.")
     parser.add_argument("--load", required=False, help="Identifier of a previous experiment that you want to continue (loads weights, optimizer state and history).")
@@ -73,12 +76,16 @@ def main():
     if args.augmul is None:
         args.augmul = 1.0
 
+    # load validation set
+    # we load this before the training set so that it is less skewed (otherwise
+    # most images of people with only one image would be lost to the training set)
     print("-----------------------")
     print("Loading validation dataset...")
     print("-----------------------")
     print("")
     pairs_val = get_image_pairs(IMAGES_FILEPATH, VALIDATION_COUNT_EXAMPLES, pairs_of_same_imgs=False, ignore_order=True, exclude_images=list(), seed=SEED, verbose=True)
 
+    # load training set
     print("-----------------------")
     print("Loading training dataset...")
     print("-----------------------")
@@ -86,9 +93,11 @@ def main():
     pairs_train = get_image_pairs(IMAGES_FILEPATH, TRAIN_COUNT_EXAMPLES, pairs_of_same_imgs=False, ignore_order=True, exclude_images=pairs_val, seed=SEED, verbose=True)
     print("-----------------------")
 
+    # check if more pairs have been requested than can be generated
     assert len(pairs_val) == VALIDATION_COUNT_EXAMPLES
     assert len(pairs_train) == TRAIN_COUNT_EXAMPLES
 
+    # we loaded pairs of filepaths so far, now load the contents
     print("Loading image contents from hard drive...")
     X_val, y_val = image_pairs_to_xy(pairs_val)
     X_train, y_train = image_pairs_to_xy(pairs_train)
@@ -102,8 +111,11 @@ def main():
     )
     """
 
+    # initialize the network
     print("Creating model...")
-    model, optimizer = create_model(args.dropout)
+    #model, optimizer = create_model(args.dropout)
+    model, optimizer = create_model2(args.dropout)
+    #model, optimizer = create_model_nonorm(args.dropout)
     #model, optimizer = create_model_full_border(args.dropout)
     #model, optimizer = create_model_td_dense(args.dropout)
     
@@ -112,6 +124,10 @@ def main():
     # (Seems to still not make runs reproducible.)
     random.seed(SEED)
 
+    # -------------------
+    # Training loop part
+    # -------------------
+    # initialize the plotter for loss and accuracy
     la_plotter = LossAccPlotter(save_to_filepath=SAVE_PLOT_FILEPATH.format(identifier=args.identifier))
     """
     ia_train = ImageAugmenter(64, 64, hflip=True, vflip=False,
@@ -119,6 +135,8 @@ def main():
                               rotation_deg=25, shear_deg=8,
                               translation_x_px=7, translation_y_px=7)
     """
+    # intialize the image augmenters
+    # they are going to rotate, shift etc. the images
     augmul = float(args.augmul)
     ia_train = ImageAugmenter(64, 64, hflip=True, vflip=False,
                               scale_to_percent=1.0 + (0.05*augmul),
@@ -127,9 +145,18 @@ def main():
                               shear_deg=int(4*augmul),
                               translation_x_px=int(4*augmul),
                               translation_y_px=int(4*augmul))
+    # prefill the training augmenter with lots of random affine transformation
+    # matrices, so that they can be reused many times
     ia_train.pregenerate_matrices(15000)
+    
+    # we dont want any augmentations for the validation set
     ia_val = ImageAugmenter(64, 64)
 
+    # load previous data if requested
+    # includes: weights (works only if new and old model are identical),
+    # optimizer state (works only for same optimizer, seems to cause errors for adam),
+    # history (loss and acc values per epoch),
+    # old plot (will be continued)
     if args.load:
         print("Loading previous model...")
         epoch_start, history = load_previous_model(args.load, model, optimizer, la_plotter)
@@ -137,12 +164,32 @@ def main():
         epoch_start = 0
         history = History()
     
+    # run the training loop
     print("Training...")
     train_loop(args.identifier, model, optimizer, epoch_start, history, la_plotter, ia_train, ia_val, X_train, y_train, X_val, y_val)
     
     print("Finished.")
 
 def validate_identifier(identifier, must_exist=True):
+    """Check whether a used identifier is a valid one or raise an error.
+    
+    Optionally also check if there is already an experiment with the identifier
+    and raise an error if there is none yet.
+    
+    Valid identifiers contain only:
+        a-z
+        A-Z
+        0-9
+        _
+    
+    Args:
+        identifier: Identifier to check for validity.
+        must_exist: If set to true and no experiment uses the identifier yet,
+            an error will be raised.
+    
+    Returns:
+        void
+    """
     if not identifier or identifier != re.sub("[^a-zA-Z0-9_]", "", identifier):
         raise Exception("Invalid characters in identifier, only a-z A-Z 0-9 and _ are allowed.")
     if must_exist:
@@ -150,6 +197,17 @@ def validate_identifier(identifier, must_exist=True):
             raise Exception("No model with identifier '{}' seems to exist.".format(identifier))
 
 def identifier_exists(identifier):
+    """Returns True if the provided identifier exists.
+    The existence and check by checking if there is a history (csv file)
+    with the provided identifier.
+    
+    Args:
+        identifier: Identifier of the experiment.
+
+    Returns:
+        True if an experiment with the identifier exists.
+        False otherwise.
+    """
     filepath = SAVE_CSV_FILEPATH.format(identifier=identifier)
     if os.path.isfile(filepath):
         return True
@@ -157,12 +215,38 @@ def identifier_exists(identifier):
         return False
 
 def ask_continue(message):
+    """Displays the message and waits for a "y" (yes) or "n" (no) input by the user.
+    
+    Args:
+        message: The message to display.
+
+    Returns:
+        True if the user has entered "y" (for yes).
+        False if the user has entered "n" (for no).
+    """
     choice = raw_input(message)
     while choice not in ["y", "n"]:
         choice = raw_input("Enter 'y' (yes) or 'n' (no) to continue.")
     return choice == "y"
 
 def load_previous_model(identifier, model, optimizer, la_plotter):
+    """Loads a previous model with the provided identifier (weights, optimizer state,
+    history, plot).
+    
+    Args:
+        identifier: Identifier of the previous experiment.
+        model: The current model. That model's weights will be changed to the loaded ones.
+            Architecture (layers) must be identical.
+        optimizer: The current optimizer. That optimizer's state will be changed to
+            the loaded one.
+        la_plotter: The current plotter for loss and accuracy. Will be updated
+            with the loaded history data.
+    
+    Returns:
+        Will return a tupel (last epoch, history), where "last epoch" is the
+        last epoch that was finished in the old experiment and "history"
+        is the old experiment's history object (i.e. epochs, loss, acc).
+    """
     # load optimizer state
     (success, last_epoch) = load_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, identifier)
     if not success:
@@ -253,6 +337,206 @@ def create_model(dropout=None):
     model.add(GRU(336/4, 64, return_sequences=True))
     model.add(Flatten())
     model.add(BatchNormalization((64*(64*4),)))
+    model.add(Dropout(dropout))
+    
+    model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
+    model.add(Activation("sigmoid"))
+
+    optimizer = Adagrad()
+    
+    print("Compiling model...")
+    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
+    
+    return model, optimizer
+
+def create_model2(dropout=None):
+    dropout = float(dropout) if dropout is not None else 0.00
+    print("Dropout will be set to {}".format(dropout))
+    
+    model = Sequential()
+    
+    model.add(GaussianNoise(0.05))
+    
+    # 4x34x66
+    model.add(Convolution2D(4, 1, 3, 3, border_mode="full"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    
+    # 8x32x64
+    model.add(Convolution2D(8, 4, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    
+    # 16x30x62
+    model.add(Convolution2D(16, 8, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    
+    # 32x28x60
+    model.add(Convolution2D(32, 16, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    
+    # 32x14x30
+    model.add(MaxPooling2D(poolsize=(2, 2)))
+    
+    # 64x12x28
+    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    
+    # 64*12*28 = 64*336 = 64*4 * 84
+    model.add(Reshape(64*4, 336//4))
+    model.add(BatchNormalization((64*4, 336//4)))
+    model.add(GaussianNoise(0.1))
+    model.add(GaussianDropout(0.1))
+    
+    # GRU over 64*4 slices
+    model.add(GRU(336//4, 64, return_sequences=True))
+    model.add(Flatten())
+    model.add(BatchNormalization((64*(64*4),)))
+    model.add(Dropout(dropout))
+    model.add(GaussianNoise(0.1))
+    model.add(GaussianDropout(0.1))
+    
+    # Dense from 64*4 slices, each 64 nodes (64*4*64) into 64 nodes
+    model.add(Dense(64*4*64, 64, init="glorot_uniform", W_regularizer=l2(0.00001)))
+    model.add(LeakyReLU(0.33))
+    model.add(BatchNormalization((64,)))
+    model.add(Dropout(dropout))
+    model.add(GaussianNoise(0.05))
+    model.add(GaussianDropout(0.05))
+    
+    # Output
+    model.add(Dense(64, 1, init="glorot_uniform", W_regularizer=l2(0.00001)))
+    model.add(Activation("sigmoid"))
+
+    optimizer = Adagrad()
+    
+    print("Compiling model...")
+    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
+    
+    return model, optimizer
+
+def create_model3(dropout=None):
+    dropout = float(dropout) if dropout is not None else 0.00
+    print("Dropout will be set to {}".format(dropout))
+    
+    model = Sequential()
+    
+    model.add(GaussianNoise(0.05))
+    
+    # 8x34x66
+    model.add(Convolution2D(8, 1, 3, 3, border_mode="full"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    model.add(GaussianNoise(0.00))
+    model.add(GaussianDropout(0.00))
+    
+    # 16x32x64
+    model.add(Convolution2D(16, 8, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    model.add(GaussianNoise(0.00))
+    model.add(GaussianDropout(0.00))
+    
+    # 16x16x32
+    model.add(MaxPooling2D(poolsize=(2, 2)))
+    
+    # 32x14x30
+    model.add(Convolution2D(32, 16, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    model.add(GaussianNoise(0.00))
+    model.add(GaussianDropout(0.00))
+    
+    # 64x12x28
+    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    model.add(GaussianNoise(0.00))
+    model.add(GaussianDropout(0.00))
+    
+    # 64x6x14
+    model.add(MaxPooling2D(poolsize=(2, 2)))
+    
+    # 128x4x12
+    model.add(Convolution2D(128, 64, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    model.add(GaussianNoise(0.00))
+    model.add(GaussianDropout(0.00))
+    
+    # 128*4*12 = 128*48
+    #model.add(Reshape(128, 48))
+    model.add(BatchNormalization((128, 48)))
+    model.add(GaussianNoise(0.1))
+    model.add(GaussianDropout(0.1))
+    
+    # LSTM over 128 slices
+    model.add(LSTM(128, 64, return_sequences=True))
+    model.add(Flatten())
+    model.add(BatchNormalization((128*64),))
+    model.add(Dropout(dropout))
+    model.add(GaussianNoise(0.1))
+    model.add(GaussianDropout(0.1))
+    
+    # Dense from 64*4 slices, each 64 nodes (64*4*64) into 64 nodes
+    model.add(Dense(128*64, 64, init="glorot_uniform", W_regularizer=l2(0.00001)))
+    model.add(LeakyReLU(0.33))
+    model.add(BatchNormalization((64,)))
+    model.add(Dropout(dropout))
+    model.add(GaussianNoise(0.05))
+    model.add(GaussianDropout(0.05))
+    
+    # Output
+    model.add(Dense(64, 1, init="glorot_uniform", W_regularizer=l2(0.00001)))
+    model.add(Activation("sigmoid"))
+
+    optimizer = Adagrad()
+    
+    print("Compiling model...")
+    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
+    
+    return model, optimizer
+
+def create_model_nonorm(dropout=None):
+    dropout = float(dropout) if dropout is not None else 0.00
+    print("Dropout will be set to {}".format(dropout))
+    
+    model = Sequential()
+    
+    # 32 x 32+2 x 64+2 = 32x34x66
+    model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    # 32 x 34-2 x 66-2 = 32x32x64
+    model.add(Convolution2D(32, 32, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    
+    # 32 x 32/2 x 64/2 = 32x16x32
+    model.add(MaxPooling2D(poolsize=(2, 2)))
+    
+    # 64 x 16-2 x 32-2 = 64x14x30
+    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    # 64 x 14-2 x 30-2 = 64x12x28
+    model.add(Convolution2D(64, 64, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(dropout))
+    
+    # 64x12x28 = 64x336 = 21504
+    # In 64*4 slices: 64*4 x 336/4 = 256x84
+    model.add(Reshape(64*4, int(336/4)))
+    #model.add(BatchNormalization((64*4, int(336/4))))
+    model.add(GaussianNoise(0.1))
+    
+    model.add(GRU(336/4, 64, return_sequences=True))
+    model.add(Flatten())
+    model.add(BatchNormalization((64*(64*4),)))
+    model.add(GaussianNoise(0.1))
     model.add(Dropout(dropout))
     
     model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
@@ -364,7 +648,14 @@ def create_model_td_dense(dropout=None):
     return model, optimizer
 
 class History(object):
+    """A simple object to save the training history of an experiment to.
+    History included: Epochs, Loss (training set), Loss (validation set),
+    Accuracy (training set), Accuracy (validation set).
+    
+    Can easily be saved to a csv file.
+    """
     def __init__(self):
+        """Initialize the history."""
         #self.first_epoch = 1000 * 1000
         #self.last_epoch = -1
         self.epochs = []
@@ -374,6 +665,19 @@ class History(object):
         self.acc_val = []
 
     def add(self, epoch, loss_train=None, loss_val=None, acc_train=None, acc_val=None):
+        """Add an entry (row) to the history.
+        
+        Should work in principle without providing all values, but nevertheless
+        you should provide all. Used named attributes here mostly for clarity when
+        calling the function, so that values don't get mixed up.
+        
+        Args:
+            epoch: The epoch of the other values (i.e. of the row).
+            loss_train: The loss value of the training set of the epoch.
+            loss_val: The loss value of the validation set of the epoch.
+            acc_train: The accuracy value of the training set of the epoch.
+            acc_val: The accuracy value of the validation set of the epoch.
+        """
         self.epochs.append(epoch)
         self.loss_train.append(loss_train)
         self.loss_val.append(loss_val)
@@ -383,11 +687,28 @@ class History(object):
         #self.last_epoch = max(self.last_epoch, epoch)
 
     def add_all(self, start_epoch, loss_train, loss_val, acc_train, acc_val):
+        """Add lists of values to the history.
+        
+        All lists must have equal lengths.
+        
+        Args:
+            start_epoch: Epoch of the first value.
+            loss_train: List of the values of the loss of the training set.
+            loss_val: List of the values of the loss of the validation set.
+            acc_train: List of the values of the accuracy of the training set.
+            acc_val: List of the values of the accuracy of the validation set.
+        """
         last_epoch = start_epoch + len(loss_train)
         for epoch, lt, lv, at, av in zip(range(start_epoch, last_epoch+1), loss_train, loss_val, acc_train, acc_val):
             self.add(epoch, loss_train=lt, loss_val=lv, acc_train=at, acc_val=av)
 
     def save_to_filepath(self, csv_filepath):
+        """Saves the contents of the history to a csv file.
+        
+        Args:
+            csv_filepath: Full path to the file to write to. All content in the
+                file will be completely overwritten.
+        """
         with open(csv_filepath, "w") as fp:
             csvw = csv.writer(fp, delimiter=",")
             # header row
@@ -398,6 +719,18 @@ class History(object):
             csvw.writerows(rows)
 
     def load_from_file(self, csv_filepath, last_epoch=None):
+        """Loads the content of the history from a csv file.
+        
+        It is assumed that the csv file has the same structure as the one
+        created by save_to_filepath().
+        
+        Args:
+            csv_filepath: Full path to the file to read.
+            last_epoch: The epoch until which to read the content (including).
+                E.g. last_epoch=10 will read the rows for epoch 1, 2, 3, ... and 10.
+                If set to "last" or None then all epochs will be read.
+                Default is None (read all).
+        """
         # load previous loss/acc values per epoch from csv file
         csv_lines = open(csv_filepath, "r").readlines()
         csv_lines = csv_lines[1:] # no header
@@ -422,6 +755,26 @@ class History(object):
         self.acc_val = stats_acc_val
 
 def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter, ia_train, ia_val, X_train, y_train, X_val, y_val):
+    """Perform the training loop.
+    
+    Args:
+        identifier: Identifier of the experiment.
+        model: The network to train (and validate).
+        optimizer: The network's optimizer (e.g. SGD).
+        epoch_start: The epoch to start the training at. Usually 0, but
+            can be higher if an old training is continued/loaded.
+        history: The history for this training.
+            Can be filled already, if an old training is continued/loaded.
+        la_plotter: The plotter used to plot loss and accuracy values.
+            Can be filled already, if an old training is continued/loaded.
+        ia_train: ImageAugmenter to use to augment the training images.
+        ia_val: ImageAugmenter to use to augment the validation images.
+        X_train: The training set images.
+        y_train: The training set labels (same persons, different persons).
+        X_val: The validation set images.
+        y_val: The validation set labels.
+    """
+    
     # Loop over each epoch, i.e. executes 20 times if epochs set to 20
     # start_epoch is not 0 if we continue an older model.
     for epoch in range(epoch_start, EPOCHS):
@@ -489,28 +842,25 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter, i
             save_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, "{}.last.optstate".format(identifier), overwrite=True)
 
 def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=False):
-    """Uses the datasets for the branches of the convnet and the pca
-    and returns them batch by batch, transformed via the data generators.
-    
-    This method is largely copied from kera's ImageDataGenerator.flow_batches().
+    """Uses the datasets (either train. or val.) and returns them batch by batch,
+    transformed via provided ImageAugmenter (ia).
     
     Args:
-        X_conv: Images for the convnet branch (32x32)
-        X_pca: Images for the pca branch (64x64)
-        dg_conv: Datagenerator for the convnet branch (e.g. randomly
-            rotates images and other stuff).
-        dg_pca: Datagenerator for the pca branch.
-        pca: The fitted scikit PCA object.
+        X_in: Pairs of input images of shape (N, 2, 64, 64).
+        y_in: Labels for the pairs of shape (N, 1).
+        ia: ImageAugmenter to use.
         batch_size: Size of the batches to return.
-        shuffle: Whether to shuffle the images before starting to return
-            any batches.
+        shuffle: Whether to shuffle the order of the images before starting to
+            return any batches.
+
     Returns:
-        Batches/Tuples of ([convnet batch, pca batch], y)
-        (one by one via yield).
+        Batches, i.e. tuples of (X, y).
     """
     
     # Shuffle the datasets before starting to return batches
     if shuffle:
+        # we copy X_in and y_in here, otherwise the original X_in and y_in
+        # will be shuffled by numpy too.
         X = np.copy(X_in)
         y = np.copy(y_in)
 
@@ -536,17 +886,19 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
         else:
             nb_samples = batch_size
         
-        # Collect the examples for the convnet-batch,
-        # use the data generator to randomly transform each example
+        # extract all images of the batch from X
         batch_start_idx = b*batch_size
         batch = X[batch_start_idx:batch_start_idx + nb_samples]
         
-        # augment images
+        # augment the images of the batch
         batch_img1 = batch[:, 0, ...] # left images
         batch_img2 = batch[:, 1, ...] # right images
         batch_img1 = ia.augment_batch(batch_img1)
         batch_img2 = ia.augment_batch(batch_img2)
         
+        # resize and merge the pairs of images to shape (B, 1, 32, 64), where
+        # B is the size of this batch and 1 represents the only channel
+        # of the image.
         X_batch = np.zeros((nb_samples, 1, 32, 64))
         for i in range(nb_samples):
             # sometimes switch positions (left/right) of images during training
@@ -561,12 +913,11 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
             # note: imresize projects the image into 0-255, even if it was 0-1.0 before
             img1 = misc.imresize(img1, (32, 32)) / 255.0
             img2 = misc.imresize(img2, (32, 32)) / 255.0
+            
+            # merge the two images to one image
             X_batch[i] = np.concatenate((img1, img2), axis=1)
-            #print("X_batch.shape", X_batch.shape)
-            #print("X_batch[i].shape", X_batch[i].shape)
-            #misc.imshow(np.squeeze(X_batch[i]))
         
-        # Collect the y values for the batch
+        # Collect the y values of the batch
         y_batch = y[batch_start_idx:batch_start_idx + nb_samples]
 
         yield X_batch, y_batch
