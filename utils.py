@@ -1,6 +1,4 @@
 # -*- coding: utf-8 -*-
-import gzip
-import cPickle as pickle
 import os
 import os.path
 import h5py
@@ -58,13 +56,10 @@ def save_optimizer_state(optimizer, file_dir, file_name, overwrite=False):
     for n, update in enumerate(state):
         is_scalar = True if len(update.shape) == 0 else False
         shape = (1,) if is_scalar else update.shape
-        #uplen = len(np.atleast_1d(update)) # catch case where update-array is 1d-scalar
         
         update_name = 'update_{}'.format(n)
-        #update_dset = group.create_dataset(update_name, update.shape, dtype=update.dtype)
         update_dset = group.create_dataset(update_name, shape, dtype=update.dtype)
         
-        #print(update, type(update), update.shape, shape) #, len(update))
         if not is_scalar > 1:
             update_dset[:] = update
         else:
@@ -117,7 +112,6 @@ def load_weights(model, save_weights_dir, previous_identifier):
             epochs = sorted([int(re.sub("[^0-9]", "", f.split(".")[1])) for f in filenames], reverse=True)
             fname = "{}.at{}.weights".format(previous_identifier, epochs[0])
             weights_filepath = os.path.join(save_weights_dir, fname)
-            #model.load_weights(weights_filepath)
             load_weights_seq(model, weights_filepath)
             return (True, epochs[0])
 
