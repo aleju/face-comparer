@@ -6,52 +6,40 @@ import os.path
 import h5py
 import sys
 
-"""
-def save_model(model, file_dir, file_name, file_extension, use_gzip=True):
-    if not file_dir.endswith("/"):
-        file_dir = file_dir + "/"
-    filepath = file_dir + file_name + file_extension
-    
-    if gzip:
-        with gzip.open(filepath, "wb") as f:
-            pickle.dump(model, f, -1)
-    else:
-        with open(filepath, "wb") as f:
-            pickle.dump(model, f, -1)
-
-def load_model(file_dir, file_name, file_extension):
-    if not file_dir.endswith("/"):
-        file_dir = file_dir + "/"
-    filepath = file_dir + file_name + file_extension
-    
-    with gzip.open(filepath, "rb") as f:
-        model = pickle.load(f)
-    return model
-
-def save_model_config(model, file_dir, file_name):
-    if not file_dir.endswith("/"):
-        file_dir = file_dir + "/"
-    filepath = file_dir + file_name
-    
-    with open(filepath, "wb") as f:
-        f.write(str(model.get_config()))
-"""
-
 def save_model_weights(model, file_dir, file_name, overwrite=False):
-    if not file_dir.endswith("/"):
-        file_dir = file_dir + "/"
-    filepath = file_dir + file_name
-    
+    """Save the weights of a model/neural net.
+
+    Args:
+        model: The neural net.
+        file_dir: Directory in which to create the file.
+        file_name: Name of the file to write to.
+        overwrite: Whether to overwrite an existing file. If set to False,
+            the program will stop and ask whether to overwrite the content.
+    """
+    filepath = os.path.join(file_dir, file_name)
     model.save_weights(filepath, overwrite=overwrite)
 
 def save_optimizer_state(optimizer, file_dir, file_name, overwrite=False):
-    if not file_dir.endswith("/"):
-        file_dir = file_dir + "/"
-    filepath = file_dir + file_name
+    """Save the state of a neural net optimizer, e.g. Adagrad, SGD, ...
+
+    Only really tested with Adagrad.
+
+    Args:
+        model: The neural net.
+        file_dir: Directory in which to create the file.
+        file_name: Name of the file to write to.
+        overwrite: Whether to overwrite an existing file. If set to False,
+            the program will stop and ask whether to overwrite the content.
+    """
     
+    filepath = os.path.join(file_dir, file_name)
+
     state = optimizer.get_state()
-    
-    # Save weights from all layers to HDF5
+
+    # Note:
+    #  the following content is mostly copied from keras' save_weights function
+
+    # Save parameters from all layers to HDF5
     # if file exists and should not be overwritten
     if not overwrite and os.path.isfile(filepath):
         get_input = input
@@ -87,6 +75,27 @@ def save_optimizer_state(optimizer, file_dir, file_name, overwrite=False):
 
 
 def load_weights(model, save_weights_dir, previous_identifier):
+    """Load the weights of an older experiment into a model.
+    
+    This function searches for files called "<previous_identifier>.at1234.weights"
+    or "<previous_identifier>.last.weights" (wehre at1234 represents epoch 1234).
+    If a *.last file was found, that one will be used. Otherwise the weights file
+    with the highest epoch number will be used.
+    
+    The new and the old model must have identical architecture/layers.
+    
+    Args:
+        model: The model for which to load the weights. The current weights
+            will be overwritten.
+        save_weights_dir: The directory in which weights are saved.
+        previous_identifier: Identifier of the old experiment.
+    Returns:
+        Either tuple (bool success, int epoch)
+            or tuple (bool success, string "last"),
+        where "success" indicates whether a weights file was found
+        and "epoch" represents the epoch of that weights file (e.g. 1234 in *.at1234)
+        and "last" represents a *.last file.
+    """
     filenames = [f for f in os.listdir(save_weights_dir) if os.path.isfile(os.path.join(save_weights_dir, f))]
     filenames = [f for f in filenames if f.startswith(previous_identifier + ".") and f.endswith(".weights")]
     if len(filenames) == 0:
@@ -113,6 +122,19 @@ def load_weights(model, save_weights_dir, previous_identifier):
             return (True, epochs[0])
 
 def load_weights_seq(seq, filepath):
+    """Loads the weights from an exactly specified weights file into a model.
+    
+    This function is identical to Kera's load_weights function, but checks first
+    if the file exists and raises an error if that is not the case.
+    
+    In contrast to the load_weights function above, this one expects the full
+    path to the weights file and does not search on its own for a well fitting one.
+    
+    Args:
+        seq: The model for which to load the weights. The current weights
+            will be overwritten.
+        filepath: Full path to the weights file.
+    """
     # Loads weights from HDF5 file
     if not os.path.isfile(filepath):
         raise Exception("Weight file '%s' does not exist." % (filepath,))
@@ -125,6 +147,29 @@ def load_weights_seq(seq, filepath):
         f.close()
 
 def load_optimizer_state(optimizer, save_optimizer_state_dir, previous_identifier):
+    """Loads the state of an optimizer from a previous experiment.
+    
+    This function works similar to the load_weights function and searches for
+    "<identifier>.at1234.optstate" or "<identifier>.last.optstate" files in
+    the provided directory.
+    
+    This function was only really tested with Adagrad and seemed to cause errors
+    with Adam.
+    
+    Args:
+        optimizer: The optimizer for which to load the state. The current state
+            will be overwritten.
+        save_optimizer_state_dir: The directory in which optimizer states are
+            saved.
+        previous_identifier: The identifier of the old experiment from which
+            to load the optimizer state.
+    Returns:
+        Either tuple (bool success, int epoch)
+            or tuple (bool success, string "last"),
+        where "success" indicates whether a optimizer state file was found
+        and "epoch" represents the epoch of that file (e.g. 1234 in *.at1234)
+        and "last" represents a *.last file.
+    """
     odir = save_optimizer_state_dir
     filenames = [f for f in os.listdir(odir) if os.path.isfile(os.path.join(odir, f))]
     filenames = [f for f in filenames if f.startswith(previous_identifier + ".") and f.endswith(".optstate")]
