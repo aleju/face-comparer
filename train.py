@@ -305,33 +305,6 @@ def load_previous_model(identifier, model, optimizer, la_plotter):
     
     return history.epochs[-1], history
 
-"""
-def load_history(save_history_dir, identifier):
-    # load previous loss/acc values per epoch from csv file
-    csv_filepath = "{}/{}.csv".format(save_history_dir, identifier)
-    csv_lines = open(csv_filepath, "r").readlines()
-    csv_lines = csv_lines[1:] # no header
-    csv_cells = [line.strip().split(",") for line in csv_lines]
-    epochs = [int(cells[0]) for cells in csv_cells]
-    stats_train_loss = [float(cells[1]) for cells in csv_cells]
-    stats_val_loss = [float(cells[2]) for cells in csv_cells]
-    stats_train_acc = [float(cells[3]) for cells in csv_cells]
-    stats_val_acc = [float(cells[4]) for cells in csv_cells]
-    
-    if last_epoch == "last":
-        start_epoch = epochs[-1] + 1
-    else:
-        start_epoch = last_epoch + 1
-    
-    epochs = range(start_epoch)
-    history.add_all(start_epoch,
-                    stats_train_loss[0:start_epoch],
-                    stats_train_val[0:start_epoch],
-                    stats_acc_train[0:start_epoch],
-                    stats_acc_val[0:start_epoch])
-    return history
-"""
-
 def create_model(dropout=None):
     dropout = float(dropout) if dropout is not None else 0.00
     print("Dropout will be set to {}".format(dropout))
@@ -451,15 +424,6 @@ def create_model4(dropout=None):
     # 128x15x31 = 128x465 = 2*29760
     model.add(Reshape(128, 465))
     model.add(BatchNormalization((128, 465)))
-    
-    """
-    model.add(TimeDistributedDense(465, 128, init="glorot_uniform", W_regularizer=l2(0.000001)))
-    model.add(LeakyReLU(0.33))
-    model.add(BatchNormalization((64, 128)))
-    model.add(Dropout(0.00))
-    model.add(GaussianNoise(0.00))
-    model.add(GaussianDropout(0.00))
-    """
     
     model.add(LSTM(465, 64, return_sequences=True))
     model.add(Flatten())
