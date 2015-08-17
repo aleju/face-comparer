@@ -11,6 +11,14 @@ IMAGE_WIDTH = 64
 IMAGE_HEIGHT = 64
 
 def filepath_to_person_name(fp):
+    """Extracts the name of a person from a filepath.
+    Obviously only works with the file naming used in the LFW-GC dataset.
+
+    Args:
+        fp: The full filepath of the file.
+    Returns:
+        Name of the person.
+    """
     last_slash = fp.rfind("/")
     if last_slash is None:
         return fp[0:fp.rfind("_")]
@@ -18,17 +26,47 @@ def filepath_to_person_name(fp):
         return fp[last_slash+1:fp.rfind("_")]
 
 def filepath_to_number(filepath):
+    """Extracts the number of the image from a filepath.
+
+    Each person in the dataset may have 1...N images associated with him/her,
+    which are then numbered from 1 to N in the filepath. This function returns
+    that number.
+
+    Args:
+        filepath: The full filepath of the file.
+    Returns:
+        Number of that image (among all images of that person).
+    """
     return int(re.sub(r"[^0-9]", "", filepath))
 
 class ImageFile(object):
+    """Object to model one image file of the dataset.
+    Example:
+      image_file = ImageFile("~/lfw-gc/faces/", "Arnold_Schwarzenegger_001.pgm")
+    """
     def __init__(self, directory, name):
+        """Initialize the ImageFile object.
+        Args:
+            directory: Directory of the file.
+            name: Full filename, e.g. 'foo.txt'."""
         self.filepath = os.path.join(directory, name)
         self.filename = name
         self.person = filepath_to_person_name(self.filepath)
         self.number = filepath_to_number(self.filepath)
 
 class ImagePair(object):
+    """Object that models a pair of images, used during training of the neural net.
+    Use the instance variables
+        - 'same_person' to determine whether both images of the pair
+           show the same person and
+        - 'same_image' whether both images of the pair are identical.
+    """
     def __init__(self, image1, image2):
+        """Create a new ImagePair object.
+        Args:
+            image1: ImageFile object of the first image in the pair.
+            image2: ImageFile object of the second image in the pair.
+        """
         self.image1 = image1
         self.image2 = image2
         self.same_person = (image1.person == image2.person)
