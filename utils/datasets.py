@@ -7,8 +7,76 @@ from collections import defaultdict
 import numpy as np
 import re
 
+Y_SAME = 1
+Y_DIFFERENT = 0
 IMAGE_WIDTH = 64
 IMAGE_HEIGHT = 64
+
+class ImageFile(object):
+    """Object to model one image file of the dataset.
+    Example:
+      image_file = ImageFile("~/lfw-gc/faces/", "Arnold_Schwarzenegger_001.pgm")
+    """
+    def __init__(self, directory, name):
+        """Initialize the ImageFile object.
+        Args:
+            directory: Directory of the file.
+            name: Full filename, e.g. 'foo.txt'."""
+        self.filepath = os.path.join(directory, name)
+        self.filename = name
+        self.person = filepath_to_person_name(self.filepath)
+        self.number = filepath_to_number(self.filepath)
+    
+    def get_content(self):
+        """Returns the content of the image (pixel values) as a numpy array.
+        
+        Returns:
+            Content of image as numpy array (dtype: uint8).
+            Should have shape (height, width) as the images are grayscaled."""
+        return misc.imread(self.filepath)
+
+class ImagePair(object):
+    """Object that models a pair of images, used during training of the neural net.
+    Use the instance variables
+        - 'same_person' to determine whether both images of the pair
+           show the same person and
+        - 'same_image' whether both images of the pair are identical.
+    """
+    def __init__(self, image1, image2):
+        """Create a new ImagePair object.
+        Args:
+            image1: ImageFile object of the first image in the pair.
+            image2: ImageFile object of the second image in the pair.
+        """
+        self.image1 = image1
+        self.image2 = image2
+        self.same_person = (image1.person == image2.person)
+        self.same_image = (image1.filepath == image2.filepath)
+
+    def get_key(self, ignore_order):
+        """Return a key to represent this pair, e.g. in sets.
+
+        Returns:
+            A (string-)key representing this pair.
+        """
+        # if ignore_order then (image1,image2) == (image2,image1)
+        # therefore, the key used to check if a pair already exists must then
+        # catch both cases (A,B) and (B,A), i.e. it must be sorted to always
+        # be (A,B)
+        # Could probably use tuples here as keys too.
+        fps = [self.image1.filepath, self.image2.filepath]
+        if ignore_order:
+            key = "$$$".join(sorted(fps))
+        else:
+            key = "$$$".join(fps)
+        return key
+
+    def get_contents(self):
+        """Returns the contents (pixel values) of both images of the pair as one numpy array.
+        Returns:
+            Numpy array of shape (2, height, width) with dtype uint8.
+        """
+        return np.array([self.image1.get_content(), self.image2.get_content()], dtype=np.uint8)
 
 def filepath_to_person_name(fp):
     """Extracts the name of a person from a filepath.
@@ -39,63 +107,23 @@ def filepath_to_number(filepath):
     """
     return int(re.sub(r"[^0-9]", "", filepath))
 
-class ImageFile(object):
-    """Object to model one image file of the dataset.
-    Example:
-      image_file = ImageFile("~/lfw-gc/faces/", "Arnold_Schwarzenegger_001.pgm")
-    """
-    def __init__(self, directory, name):
-        """Initialize the ImageFile object.
-        Args:
-            directory: Directory of the file.
-            name: Full filename, e.g. 'foo.txt'."""
-        self.filepath = os.path.join(directory, name)
-        self.filename = name
-        self.person = filepath_to_person_name(self.filepath)
-        self.number = filepath_to_number(self.filepath)
 
-class ImagePair(object):
-    """Object that models a pair of images, used during training of the neural net.
-    Use the instance variables
-        - 'same_person' to determine whether both images of the pair
-           show the same person and
-        - 'same_image' whether both images of the pair are identical.
-    """
-    def __init__(self, image1, image2):
-        """Create a new ImagePair object.
-        Args:
-            image1: ImageFile object of the first image in the pair.
-            image2: ImageFile object of the second image in the pair.
-        """
-        self.image1 = image1
-        self.image2 = image2
-        self.same_person = (image1.person == image2.person)
-        self.same_image = (image1.filepath == image2.filepath)
-
-    def get_key(self, ignore_order):
-        # if ignore_order then (image1,image2) == (image2,image1)
-        # therefore, the key used to check if a pair already exists must then
-        # catch both cases (A,B) and (B,A), i.e. it must be sorted to always
-        # be (A,B)
-        fps = [self.image1.filepath, self.image2.filepath]
-        if ignore_order:
-            key = "$$$".join(sorted(fps))
-            #key = tuple(sorted([self.image1.filepath, self.image2.filepath]))
-        else:
-            key = "$$$".join(fps)
-            #key = tuple([self.image1.filepath, self.image2.filepath])
-        return key
-
-    def get_x(self):
-        img1_x = misc.imread(self.image1.filepath)
-        img2_x = misc.imread(self.image2.filepath)
-        both = np.array([img1_x, img2_x]).astype(np.uint8)
-        #both = np.concatenate([img1_x, img2_x]).astype(np.uint8)
-        return both
 
 def get_image_files(dataset_filepath, exclude_images=None):
-    if not os.path.exists(dataset_filepath):
-        raise Exception("Images filepath '%s' of the dataset seems to not exist." % (dataset_filepath,))
+    """Loads all images sorted by filenames and returns them as ImageFile Objects.
+    
+    Args:
+        dataset_filepath: Path to the 'faces/' subdirectory of the dataset (Labeled
+            Faces in the Wild, grayscaled and cropped).
+        exclude_images: List of ImageFile objects to exclude from the list to
+            return, e.g. because they are already used for another set of
+            images (training, validation, test).
+    Returns:
+        List of ImageFile objects containing all images in the dataset filepath,
+        except for the ones in exclude_images.
+    """
+    if not os.path.isdir(dataset_filepath):
+        raise Exception("Images filepath '%s' of the dataset seems to not exist or is not a directory." % (dataset_filepath,))
 
     images = []
     exclude_images = exclude_images if exclude_images is not None else set()
@@ -111,60 +139,64 @@ def get_image_files(dataset_filepath, exclude_images=None):
     images = sorted(images, key=lambda image: image.filename)
     return images
 
-"""
-def get_filepaths_by_name(dataset_filepath, seed=None):
-    filepaths = get_filepaths(dataset_filepath, seed=seed)
-    images = []
-    for filepath in filepaths:
-        name = filepath_to_person_name(name)
-        images.append((name, filepath))
-
-    images_by_person = defaultdict(list)
-    for (img_fp, img_person_name) in images:
-        images_by_person[img_person_name].append(img_fp)
-"""
-
 def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_order=True, exclude_images=list(), seed=None, verbose=False):
-    """Creates a list of tuples (filepath1, filepath1, (int)same_person)
-    from images in a directory. 'filepath1' and 'filepath2' are the 
-    full filepaths to images. 'same_person?' is 1 (int) if both images
-    show the same person, otherwise it's 0.
-    The images must be named according to lfwcrop_grey dataset (labeled
-    faces in the wild, greayscaled and cropped). E.g.:
+    """Creates a list of ImagePair objects from images in the dataset directory.
+    
+    This is the main method intended to load training/validation/test datasets.
+    
+    The images are all expected to come from the
+        Labeled Faces in the Wild, grayscaled and cropped (sic!)
+    dataset.
+    Their names must be similar to:
         Adam_Scott_0002.pgm
         Kalpana_Chawla_0002.pgm
     
+    Note: This function may currently run endlessly if nb_max is set too higher
+    (above maximum number of possible pairs of same or different persons, whichever
+    is lower - that number however is pretty large).
+    
     Args:
-        images_filepath: Path to the directory which contains the images,
-            without trailing slash.
+        images_filepath: Path to the 'faces/' subdirectory of the dataset (Labeled
+            Faces in the Wild, grayscaled and cropped).
+        nb_max: Maximum number of image pairs to return. If there arent enough
+            possible pairs, less pairs will be returned.
         pairs_of_same_imgs: Whether pairs of images may be returned, where
             filepath1 == filepath2. Notice that this may return many
             pairs of same images as many people only have low amounts of
-            images.
-        ignore_order: Defines whether (filepath1, filepath2) shall be
-            considered identical to (filepath2, filepath1). So if one
-            of them is already added, the other one wont be added any more.
+            images. (Default is False.)
+        ignore_order: Defines whether (image1, image2) shall be
+            considered identical to (image2, image1). So if one
+            of them is already added, the other pair wont be added any more.
             Setting this to True will result in less possible but more
-            diverse pairs of images.
-        nb_max: Maximum number of images to return.
-        not_in: Previous output of this function. No image will be picked
-            that appears in that list.
+            diverse pairs of images. (Default is True.)
+        exclude_images: List of ImagePair objects with images that will be
+            excluded from the result, i.e. no image that is contained in any pair
+            in that list will be contained in any pair of the result of this
+            function. Useful to fully separate validation and training sets.
+        seed: A seed to use at the start of the function.
+        verbose: Whether to print messages with statistics about the dataset
+            and the collected images.
     Returns:
-        List of tuples (filepath1, filepath2, (int)same_person)
-        Where (int)same_person is either 1 (same person in both images)
-        or 0 (different person in both images).
+        List of ImagePair objects.
     """
     if seed is not None:
         state = random.getstate() # used right before the return
         random.seed(seed)
     
-    # Build set of filepaths to not use in image pairs (because they have
+    # validate dataset directory
+    if not os.path.isdir(dataset_filepath):
+        raise Exception("Images filepath '%s' of the dataset seems to not exist or is not a directory." % (dataset_filepath,))
+    
+    # Build set of images to not use in image pairs (because they have
     # been used previously)
     exclude_images = set([img_pair.image1 for img_pair in exclude_images]
                          + [img_pair.image2 for img_pair in exclude_images])
 
+    # load metadata of all images as ImageFile objects (except for the excluded ones)
     images = get_image_files(dataset_filepath, exclude_images=exclude_images)
     
+    # build a mapping person=>images[]
+    # this will make it easier to do stratified sampling of images
     images_by_person = defaultdict(list)
     for image in images:
         images_by_person[image.person].append(image)
@@ -211,23 +243,35 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
     
     # ---
     # Build pairs of images
+    # 
+    # We use stratified sampling over the person to sample images.
+    # So we pick first a name among all available person names and then
+    # randomly select an image of that person. (In contrast to picking a random
+    # image among all images of all persons.) This makes the distribution of
+    # the images more uniform over the persons. (In contrast to having a very
+    # skewed distribution favoring much more people with many images.)
     # ---
     
     # result
     pairs = []
     
     # counters
+    # only nb_added is really needed, we other ones are for print-output
+    # in verbose mode
     nb_added = 0
-    nb_same_p_same_img = 0
-    nb_same_p_diff_img = 0
+    nb_same_p_same_img = 0 # pairs of images of same person, same image
+    nb_same_p_diff_img = 0 # pairs of images of same person, different images
     nb_diff = 0
     
     # set that saves identifiers for pairs of images that have
     # already been added to the result.
     added = set() 
     
-    # y = 1 (same person)
+    # -------------------------
+    # y = 1 (pairs with images of the same person)
+    # -------------------------
     while nb_added < nb_max // 2:
+        # pick randomly two images and make an ImagePair out of them
         person = random.choice(names_gte2)
         image1 = random.choice(images_by_person[person])
         if pairs_of_same_imgs:
@@ -238,6 +282,8 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
         pair = ImagePair(image1, image2)
         key = pair.get_key(ignore_order)
         
+        # add the ImagePair to the output, if the same pair hasn't been already
+        # picked
         if key not in added:
             pairs.append(pair)
             nb_added += 1
@@ -246,8 +292,11 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
             # log this pair as already added (dont add it a second time)
             added.add(key)
     
-    # y = 0 (different person)
+    # -------------------------
+    # y = 0 (pairs with images of different persons)
+    # -------------------------
     while nb_added < nb_max:
+        # pick randomly two different persons names to sample each one image from
         person1 = random.choice(names)
         person2 = random.choice([person for person in names if person != person1])
         
@@ -258,6 +307,8 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
         pair = ImagePair(image1, image2)
         key = pair.get_key(ignore_order)
         
+        # add the ImagePair to the output, if the same pair hasn't been already
+        # picked
         if key not in added:
             pairs.append(pair)
             nb_added += 1
@@ -274,36 +325,29 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
         print("Collected %d pairs of images showing the same person (%d are pairs of identical images)." % (nb_same_p_same_img + nb_same_p_diff_img, nb_same_p_same_img))
         print("Collected %d pairs of images showing different persons." % (nb_diff,))
     
+    # reset the RNG to the state that it had before calling the method
     if seed is not None:
         random.setstate(state) # state was set at the start of this function
     
     return pairs
 
 def image_pairs_to_xy(image_pairs):
-    """Converts tuples of (filepath1, filepath2, y) to tuples that may be
-    used by the neural net.
-    The structure of those tuples is
-        (img1-fullscale + img2-fullscale,
-         img1-smallscale + img2-smallscale,
-         [1 if y==1 else 0, 1 if y==0 else 0])
-    Where fullscale is 64x64 and smallscale is 32x32.
-    Both images are numpy arrays.
-    The last value in the tuple is either [1,0] (both images show the same
-    person) or [0,1] (the images show different persons).
+    """Converts a list of ImagePair objects to X (array of pixel values) and
+    Y (labels) to use during training/testing.
+    
     Args:
-        raw_examples_tuples: Tuples of the form (filepath1, filepath2, y)
-            from get_filepaths_of_images().
+        image_pairs: List of ImagePair objects.
     Returns:
-        Tuples of the form
-        (img1-fullscale+img2-fullscale,
-         img1-smallscale+img2-smallscale,
-         either [1,0] or [0,1]).
+        Tuple of X and Y, where X is a numpy array of dtype uint8 with
+        shape (N, 2, height, width) containing pixel values of N pairs and
+        Y is a numpy array of dtype float32 with shape (N, 1) containg
+        the 'same person'/'different person' information.
     """
     X = np.zeros((len(image_pairs), 2, IMAGE_WIDTH, IMAGE_HEIGHT), dtype=np.uint8)
     y = np.zeros((len(image_pairs),), dtype=np.float32)
     
     for i, pair in enumerate(image_pairs):
         X[i] = pair.get_x()
-        y[i] = 1 if pair.same_person else 0
+        y[i] = Y_SAME if pair.same_person else Y_DIFFERENT
     
     return X, y
