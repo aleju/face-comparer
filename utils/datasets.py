@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+"""File with helper functions to load test/validation/training sets from
+the root dataset of Labeled Faces in the Wild, grayscaled and cropped (which
+must already be on the hard drive)."""
 from __future__ import absolute_import, division, print_function
 import random
 from scipy import misc
