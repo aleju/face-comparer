@@ -45,11 +45,11 @@ from keras.layers.recurrent import GRU, LSTM
 from keras.layers.noise import GaussianNoise, GaussianDropout
 from keras.utils import generic_utils
 
-from utils.ImageAugmenter import ImageAugmenter
-from utils.laplotter import LossAccPlotter
-from utils.saveload import load_previous_model, save_model_weights, save_optimizer_state, load_weights, load_optimizer_state
-from utils.datasets import get_image_pairs, image_pairs_to_xy
-from utils.History import History
+from libs.ImageAugmenter import ImageAugmenter
+from libs.laplotter import LossAccPlotter
+from libs.saveload import load_previous_model, save_model_weights, save_optimizer_state, load_weights, load_optimizer_state
+from libs.datasets import get_image_pairs, image_pairs_to_xy
+from libs.History import History
 
 SEED = 42
 #LFWCROP_GREY_FILEPATH = "/media/aj/grab/ml/datasets/lfwcrop_grey"
