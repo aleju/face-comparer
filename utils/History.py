@@ -1,3 +1,4 @@
+"""File containing only the history class, see documentation below for more info."""
 import csv
 
 class History(object):
