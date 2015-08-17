@@ -43,7 +43,7 @@ from keras.optimizers import Adagrad, Adam
 from keras.regularizers import l2
 from keras.layers.normalization import BatchNormalization
 from keras.layers.advanced_activations import LeakyReLU
-from keras.layers.recurrent import GRU
+from keras.layers.recurrent import GRU, LSTM
 from keras.layers.noise import GaussianNoise, GaussianDropout
 from keras.utils import generic_utils
 
@@ -55,7 +55,7 @@ from datasets import get_image_pairs, image_pairs_to_xy
 SEED = 42
 LFWCROP_GREY_FILEPATH = "/media/aj/grab/ml/datasets/lfwcrop_grey"
 IMAGES_FILEPATH = LFWCROP_GREY_FILEPATH + "/faces"
-TRAIN_COUNT_EXAMPLES = 10000
+TRAIN_COUNT_EXAMPLES = 20000
 VALIDATION_COUNT_EXAMPLES = 256
 TEST_COUNT_EXAMPLES = 0
 EPOCHS = 1000 * 1000
@@ -140,8 +140,11 @@ def main():
 
     # initialize the network
     print("Creating model...")
-    #model, optimizer = create_model(args.dropout)
-    model, optimizer = create_model2(args.dropout)
+    model, optimizer = create_model(args.dropout)
+    #model, optimizer = create_model1b(args.dropout)
+    #model, optimizer = create_model2(args.dropout)
+    #model, optimizer = create_model3(args.dropout)
+    #model, optimizer = create_model4(args.dropout)
     #model, optimizer = create_model_nonorm(args.dropout)
     #model, optimizer = create_model_full_border(args.dropout)
     #model, optimizer = create_model_td_dense(args.dropout)
@@ -166,12 +169,12 @@ def main():
     # they are going to rotate, shift etc. the images
     augmul = float(args.augmul)
     ia_train = ImageAugmenter(64, 64, hflip=True, vflip=False,
-                              scale_to_percent=1.0 + (0.05*augmul),
+                              scale_to_percent=1.0 + (0.075*augmul),
                               scale_axis_equally=False,
-                              rotation_deg=int(5*augmul),
-                              shear_deg=int(4*augmul),
-                              translation_x_px=int(4*augmul),
-                              translation_y_px=int(4*augmul))
+                              rotation_deg=int(7*augmul),
+                              shear_deg=int(3*augmul),
+                              translation_x_px=int(3*augmul),
+                              translation_y_px=int(3*augmul))
     # prefill the training augmenter with lots of random affine transformation
     # matrices, so that they can be reused many times
     ia_train.pregenerate_matrices(15000)
@@ -376,6 +379,112 @@ def create_model(dropout=None):
     
     return model, optimizer
 
+def create_model1b(dropout=None):
+    dropout = float(dropout) if dropout is not None else 0.00
+    print("Dropout will be set to {}".format(dropout))
+    
+    model = Sequential()
+    
+    # 32 x 32+2 x 64+2 = 32x34x66
+    model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    # 32 x 34-2 x 66-2 = 32x32x64
+    model.add(Convolution2D(32, 32, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    
+    # 32 x 32/2 x 64/2 = 32x16x32
+    model.add(MaxPooling2D(poolsize=(2, 2)))
+    
+    # 64 x 16-2 x 32-2 = 64x14x30
+    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    # 64 x 14-2 x 30-2 = 64x12x28
+    model.add(Convolution2D(64, 64, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(dropout))
+    
+    # 64x12x28 = 64x336 = 21504
+    # In 64*4 slices: 64*4 x 336/4 = 256x84
+    model.add(Reshape(64*4, int(336/4)))
+    model.add(BatchNormalization((64*4, int(336/4))))
+    
+    model.add(GRU(336/4, 128, return_sequences=True))
+    model.add(Flatten())
+    model.add(BatchNormalization((128*(64*4),)))
+    model.add(Dropout(dropout))
+    
+    model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
+    model.add(Activation("sigmoid"))
+
+    optimizer = Adagrad()
+    
+    print("Compiling model...")
+    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
+    
+    return model, optimizer
+
+def create_model4(dropout=None):
+    dropout = float(dropout) if dropout is not None else 0.00
+    print("Dropout will be set to {}".format(dropout))
+    
+    model = Sequential()
+    
+    # 64 x 32+2 x 64+2 = 64x34x66
+    model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    # 64 x 34-2 x 66-2 = 64x32x64
+    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    # 64 x 32-2 x 64-2 = 64x30x62
+    model.add(Convolution2D(128, 64, 3, 3, border_mode="valid"))
+    model.add(LeakyReLU(0.33))
+    model.add(Dropout(0.00))
+    
+    # 128x15x31
+    model.add(MaxPooling2D(poolsize=(2, 2)))
+    
+    # 128x15x31 = 128x465 = 2*29760
+    model.add(Reshape(128, 465))
+    model.add(BatchNormalization((128, 465)))
+    
+    """
+    model.add(TimeDistributedDense(465, 128, init="glorot_uniform", W_regularizer=l2(0.000001)))
+    model.add(LeakyReLU(0.33))
+    model.add(BatchNormalization((64, 128)))
+    model.add(Dropout(0.00))
+    model.add(GaussianNoise(0.00))
+    model.add(GaussianDropout(0.00))
+    """
+    
+    model.add(LSTM(465, 64, return_sequences=True))
+    model.add(Flatten())
+    model.add(BatchNormalization((128*64,)))
+    model.add(Dropout(dropout))
+    model.add(GaussianNoise(0.10))
+    model.add(GaussianDropout(0.10))
+    
+    model.add(Dense(128*64, 128, init="glorot_uniform", W_regularizer=l2(0.000001)))
+    model.add(LeakyReLU(0.33))
+    model.add(BatchNormalization((128,)))
+    model.add(Dropout(dropout))
+    model.add(GaussianNoise(0.00))
+    model.add(GaussianDropout(0.00))
+    
+    model.add(Dense(128, 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
+    model.add(Activation("sigmoid"))
+
+    optimizer = Adagrad()
+    
+    print("Compiling model...")
+    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
+    
+    return model, optimizer
+
 def create_model2(dropout=None):
     dropout = float(dropout) if dropout is not None else 0.00
     print("Dropout will be set to {}".format(dropout))
@@ -495,13 +604,13 @@ def create_model3(dropout=None):
     model.add(GaussianDropout(0.00))
     
     # 128*4*12 = 128*48
-    #model.add(Reshape(128, 48))
+    model.add(Reshape(128, 48))
     model.add(BatchNormalization((128, 48)))
     model.add(GaussianNoise(0.1))
     model.add(GaussianDropout(0.1))
     
     # LSTM over 128 slices
-    model.add(LSTM(128, 64, return_sequences=True))
+    model.add(LSTM(48, 64, return_sequences=True))
     model.add(Flatten())
     model.add(BatchNormalization((128*64),))
     model.add(Dropout(dropout))
