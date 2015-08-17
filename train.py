@@ -31,9 +31,8 @@ import re
 import numpy as np
 import argparse
 import math
-#import matplotlib.pyplot as plt
 
-from scipy import misc # for resizing of images
+from scipy import misc
 
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Reshape, Flatten, Activation, TimeDistributedDense
@@ -46,31 +45,30 @@ from keras.layers.recurrent import GRU, LSTM
 from keras.layers.noise import GaussianNoise, GaussianDropout
 from keras.utils import generic_utils
 
-from ImageAugmenter import ImageAugmenter
-from laplotter import LossAccPlotter
-from utils import save_model_weights, save_optimizer_state, load_weights, load_optimizer_state
-from datasets import get_image_pairs, image_pairs_to_xy
-from History import History
+from utils.ImageAugmenter import ImageAugmenter
+from utils.laplotter import LossAccPlotter
+from utils.saveload import load_previous_model, save_model_weights, save_optimizer_state, load_weights, load_optimizer_state
+from utils.utils import validate_identifier, identifier_exists, ask_continue
+from utils.datasets import get_image_pairs, image_pairs_to_xy
+from utils.History import History
 
 SEED = 42
-LFWCROP_GREY_FILEPATH = "/media/aj/grab/ml/datasets/lfwcrop_grey"
-IMAGES_FILEPATH = LFWCROP_GREY_FILEPATH + "/faces"
+#LFWCROP_GREY_FILEPATH = "/media/aj/grab/ml/datasets/lfwcrop_grey"
+#IMAGES_FILEPATH = LFWCROP_GREY_FILEPATH + "/faces"
 TRAIN_COUNT_EXAMPLES = 20000
 VALIDATION_COUNT_EXAMPLES = 256
-TEST_COUNT_EXAMPLES = 0
+#TEST_COUNT_EXAMPLES = 0
 EPOCHS = 1000 * 1000
 BATCH_SIZE = 64
 SAVE_DIR = os.path.dirname(os.path.realpath(__file__)) + "/experiments"
 SAVE_PLOT_FILEPATH = "%s/plots/{identifier}.png" % (SAVE_DIR)
-SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_distribution.png" % (SAVE_DIR)
+#SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_distribution.png" % (SAVE_DIR)
 SAVE_CSV_FILEPATH = "%s/csv/{identifier}.csv" % (SAVE_DIR)
 SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
 SAVE_OPTIMIZER_STATE_DIR = "%s/optstate" % (SAVE_DIR)
-SAVE_CODE_DIR = "%s/code/{identifier}" % (SAVE_DIR)
+#SAVE_CODE_DIR = "%s/code/{identifier}" % (SAVE_DIR)
 SAVE_WEIGHTS_AFTER_EPOCHS = 1
 SHOW_PLOT_WINDOWS = True
-Y_SAME = 1
-Y_DIFFERENT = 0
 
 np.random.seed(SEED)
 random.seed(SEED)
@@ -86,17 +84,22 @@ def main():
     # handle arguments from command line
     parser = argparse.ArgumentParser()
     parser.add_argument("identifier", help="A short name/identifier for your experiment, e.g. 'ex42b_more_dropout'.")
+    parser.add_argument("--images", required=True, help="Filepath to the 'faces/' subdirectory in the 'Labeled Faces in the Wild grayscaled and cropped' dataset.")
     parser.add_argument("--load", required=False, help="Identifier of a previous experiment that you want to continue (loads weights, optimizer state and history).")
     parser.add_argument("--dropout", required=False, help="Dropout rate (0.0 - 1.0) after the last conv-layer and after the GRU layer. Default is 0.0.")
     parser.add_argument("--augmul", required=False, help="Multiplicator for the augmentation (0.0=no augmentation, 1.0=normal aug., 2.0=rather strong aug.). Default is 1.0.")
     args = parser.parse_args()
     validate_identifier(args.identifier, must_exist=False)
+    
+    if not os.path.isdir(args.images):
+        raise Exception("The provided filepath to the dataset seems to not exist.")
+    
     if args.load:
         validate_identifier(args.load)
 
     if identifier_exists(args.identifier):
         if args.identifier != args.load:
-            agreed = ask_continue("[WARNING] Identifier '%s' already exists and is different from load-identifier '%s'. It will be overwritten. Continue? [y/n]" % (args.identifier, args.load))
+            agreed = ask_continue("[WARNING] Identifier '%s' already exists and is different from load-identifier '%s'. It will be overwritten. Continue? [y/n] " % (args.identifier, args.load))
             if not agreed:
                 return
 
@@ -110,14 +113,14 @@ def main():
     print("Loading validation dataset...")
     print("-----------------------")
     print("")
-    pairs_val = get_image_pairs(IMAGES_FILEPATH, VALIDATION_COUNT_EXAMPLES, pairs_of_same_imgs=False, ignore_order=True, exclude_images=list(), seed=SEED, verbose=True)
+    pairs_val = get_image_pairs(args.images, VALIDATION_COUNT_EXAMPLES, pairs_of_same_imgs=False, ignore_order=True, exclude_images=list(), seed=SEED, verbose=True)
 
     # load training set
     print("-----------------------")
     print("Loading training dataset...")
     print("-----------------------")
     print("")
-    pairs_train = get_image_pairs(IMAGES_FILEPATH, TRAIN_COUNT_EXAMPLES, pairs_of_same_imgs=False, ignore_order=True, exclude_images=pairs_val, seed=SEED, verbose=True)
+    pairs_train = get_image_pairs(args.images, TRAIN_COUNT_EXAMPLES, pairs_of_same_imgs=False, ignore_order=True, exclude_images=pairs_val, seed=SEED, verbose=True)
     print("-----------------------")
 
     # check if more pairs have been requested than can be generated
@@ -189,7 +192,10 @@ def main():
     # old plot (will be continued)
     if args.load:
         print("Loading previous model...")
-        epoch_start, history = load_previous_model(args.load, model, optimizer, la_plotter)
+        epoch_start, history = \
+            load_previous_model(args.load, model, optimizer, la_plotter,
+                                SAVE_OPTIMIZER_STATE_DIR, SAVE_WEIGHTS_DIR,
+                                SAVE_CSV_FILEPATH)
     else:
         epoch_start = 0
         history = History()
@@ -199,111 +205,6 @@ def main():
     train_loop(args.identifier, model, optimizer, epoch_start, history, la_plotter, ia_train, ia_val, X_train, y_train, X_val, y_val)
     
     print("Finished.")
-
-def validate_identifier(identifier, must_exist=True):
-    """Check whether a used identifier is a valid one or raise an error.
-    
-    Optionally also check if there is already an experiment with the identifier
-    and raise an error if there is none yet.
-    
-    Valid identifiers contain only:
-        a-z
-        A-Z
-        0-9
-        _
-    
-    Args:
-        identifier: Identifier to check for validity.
-        must_exist: If set to true and no experiment uses the identifier yet,
-            an error will be raised.
-    
-    Returns:
-        void
-    """
-    if not identifier or identifier != re.sub("[^a-zA-Z0-9_]", "", identifier):
-        raise Exception("Invalid characters in identifier, only a-z A-Z 0-9 and _ are allowed.")
-    if must_exist:
-        if not identifier_exists(identifier):
-            raise Exception("No model with identifier '{}' seems to exist.".format(identifier))
-
-def identifier_exists(identifier):
-    """Returns True if the provided identifier exists.
-    The existence and check by checking if there is a history (csv file)
-    with the provided identifier.
-    
-    Args:
-        identifier: Identifier of the experiment.
-
-    Returns:
-        True if an experiment with the identifier exists.
-        False otherwise.
-    """
-    filepath = SAVE_CSV_FILEPATH.format(identifier=identifier)
-    if os.path.isfile(filepath):
-        return True
-    else:
-        return False
-
-def ask_continue(message):
-    """Displays the message and waits for a "y" (yes) or "n" (no) input by the user.
-    
-    Args:
-        message: The message to display.
-
-    Returns:
-        True if the user has entered "y" (for yes).
-        False if the user has entered "n" (for no).
-    """
-    choice = raw_input(message)
-    while choice not in ["y", "n"]:
-        choice = raw_input("Enter 'y' (yes) or 'n' (no) to continue.")
-    return choice == "y"
-
-def load_previous_model(identifier, model, optimizer, la_plotter):
-    """Loads a previous model with the provided identifier (weights, optimizer state,
-    history, plot).
-    
-    Args:
-        identifier: Identifier of the previous experiment.
-        model: The current model. That model's weights will be changed to the loaded ones.
-            Architecture (layers) must be identical.
-        optimizer: The current optimizer. That optimizer's state will be changed to
-            the loaded one.
-        la_plotter: The current plotter for loss and accuracy. Will be updated
-            with the loaded history data.
-    
-    Returns:
-        Will return a tupel (last epoch, history), where "last epoch" is the
-        last epoch that was finished in the old experiment and "history"
-        is the old experiment's history object (i.e. epochs, loss, acc).
-    """
-    # load optimizer state
-    (success, last_epoch) = load_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, identifier)
-    if not success:
-        print("[WARNING] could not successfully load optimizer state of identifier '{}'.".format(identifier))
-    
-    # load weights
-    # we overwrite the results of the optimizer loading here, because errors
-    # there are not very important, we can still go on training.
-    (success, last_epoch) = load_weights(model, SAVE_WEIGHTS_DIR, identifier)
-    
-    if not success:
-        raise Exception("Cannot continue previous experiment, because no weights were saved (yet?).")
-    
-    # load history from csv file
-    history = History()
-    #history.load_from_file("{}/{}.csv".format(SAVE_CSV_DIR, identifier))
-    history.load_from_file(SAVE_CSV_FILEPATH.format(identifier=identifier), last_epoch=last_epoch)
-    #history = load_history(SAVE_CSV_DIR, identifier, last_epoch=last_epoch)
-    
-    # update loss acc plotter
-    for i, epoch in enumerate(history.epochs):
-        la_plotter.add_values(epoch,
-                              loss_train=history.loss_train[i], loss_val=history.loss_val[i],
-                              acc_train=history.acc_train[i], acc_val=history.acc_val[i],
-                              redraw=False)
-    
-    return history.epochs[-1], history
 
 def create_model(dropout=None):
     dropout = float(dropout) if dropout is not None else 0.00
@@ -829,25 +730,24 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter, i
         swae = SAVE_WEIGHTS_AFTER_EPOCHS
         if swae and swae > 0 and (epoch+1) % swae == 0:
             print("Saving model...")
-            #save_model_weights(model, cfg["save_weights_dir"], model_name + ".at" + str(epoch) + ".weights")
-            #save_optimizer_state(optimizer, cfg["save_optimizer_state_dir"], model_name + ".at" + str(epoch) + ".optstate", overwrite=True)
             save_model_weights(model, SAVE_WEIGHTS_DIR, "{}.last.weights".format(identifier), overwrite=True)
             save_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, "{}.last.optstate".format(identifier), overwrite=True)
 
 def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=False):
     """Uses the datasets (either train. or val.) and returns them batch by batch,
-    transformed via provided ImageAugmenter (ia).
+    transformed via the provided ImageAugmenter (ia).
     
     Args:
         X_in: Pairs of input images of shape (N, 2, 64, 64).
         y_in: Labels for the pairs of shape (N, 1).
         ia: ImageAugmenter to use.
         batch_size: Size of the batches to return.
-        shuffle: Whether to shuffle the order of the images before starting to
-            return any batches.
+        shuffle: Whether to shuffle (randomize) the order of the images before
+            starting to return any batches.
 
     Returns:
         Batches, i.e. tuples of (X, y).
+        Generator.
     """
     
     # Shuffle the datasets before starting to return batches

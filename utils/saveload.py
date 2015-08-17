@@ -1,12 +1,15 @@
 # -*- coding: utf-8 -*-
+"""Various functions related to saving and loading of weights and optimizer states."""
+from __future__ import print_function
 import os
 import os.path
 import h5py
 import sys
+from History import History
 
-def load_previous_model(identifier, model, optimizer, la_plotter):
-    """Loads a previous model with the provided identifier (weights, optimizer state,
-    history, plot).
+def load_previous_model(identifier, model, optimizer, la_plotter, opt_dir, weights_dir, csv_filepath):
+    """Loads the model of a previous experiment with the provided identifier
+    (weights, optimizer state, history, plot).
     
     Args:
         identifier: Identifier of the previous experiment.
@@ -23,21 +26,21 @@ def load_previous_model(identifier, model, optimizer, la_plotter):
         is the old experiment's history object (i.e. epochs, loss, acc).
     """
     # load optimizer state
-    (success, last_epoch) = load_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR, identifier)
+    (success, last_epoch) = load_optimizer_state(optimizer, opt_dir, identifier)
     if not success:
         print("[WARNING] could not successfully load optimizer state of identifier '{}'.".format(identifier))
     
     # load weights
     # we overwrite the results of the optimizer loading here, because errors
     # there are not very important, we can still go on training.
-    (success, last_epoch) = load_weights(model, SAVE_WEIGHTS_DIR, identifier)
+    (success, last_epoch) = load_weights(model, weights_dir, identifier)
     
     if not success:
         raise Exception("Cannot continue previous experiment, because no weights were saved (yet?).")
     
     # load history from csv file
     history = History()
-    history.load_from_file(SAVE_CSV_FILEPATH.format(identifier=identifier), last_epoch=last_epoch)
+    history.load_from_file(csv_filepath.format(identifier=identifier), last_epoch=last_epoch)
     
     # update loss acc plotter
     for i, epoch in enumerate(history.epochs):
