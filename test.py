@@ -7,8 +7,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from train import validate_identifier, flow_batches, create_model
-from libs.datasets import get_image_pairs, image_pairs_to_xy
-from libs.saveload import load_weights
+from utils.datasets import get_image_pairs, image_pairs_to_xy
+from utils.saveload import load_weights
 from libs.ImageAugmenter import ImageAugmenter
 
 SEED = 42
