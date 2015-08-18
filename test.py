@@ -4,6 +4,8 @@ import argparse
 import os
 import random
 import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 from train import validate_identifier, flow_batches, create_model
 from libs.datasets import get_image_pairs, image_pairs_to_xy
 from libs.saveload import load_weights
@@ -22,11 +24,9 @@ random.seed(SEED)
 def main():
     # handle arguments from command line
     parser = argparse.ArgumentParser()
-    parser.add_argument("identifier", help="A short name/identifier for your experiment, e.g. 'ex42b_more_dropout'.")
+    parser.add_argument("identifier", help="Identifier of the experiment of which to load the weights.")
     parser.add_argument("--images", required=True, help="Filepath to the 'faces/' subdirectory in the 'Labeled Faces in the Wild grayscaled and cropped' dataset.")
-    #parser.add_argument("--load", required=False, help="Identifier of a previous experiment that you want to continue (loads weights, optimizer state and history).")
-    #parser.add_argument("--dropout", required=False, help="Dropout rate (0.0 - 1.0) after the last conv-layer and after the GRU layer. Default is 0.0.")
-    #parser.add_argument("--augmul", required=False, help="Multiplicator for the augmentation (0.0=no augmentation, 1.0=normal aug., 2.0=rather strong aug.). Default is 1.0.")
+    parser.add_argument("--augmul", required=False, help="Multiplicator for the augmentation (0.0=no augmentation, 1.0=normal aug., 2.0=rather strong aug.). Default is 1.5.")
     args = parser.parse_args()
     validate_identifier(args.identifier, must_exist=True)
     
@@ -65,7 +65,7 @@ def main():
         raise Exception("Could not successfully load model weights")
     print("Loaded model weights of epoch '%s'" % (str(last_epoch)))
     
-    augmul = 1.50
+    augmul = float(args.augmul) if args.augmul is not None else 1.50
     ia_noop = ImageAugmenter(64, 64)
     ia = ImageAugmenter(64, 64, hflip=True, vflip=False,
                         scale_to_percent=1.0 + (0.075*augmul),
@@ -127,15 +127,10 @@ def evaluate_model(model, X, y, ia, nb_runs):
         for X_batch, Y_batch in flow_batches(X, y, ia, shuffle=False, train=train_mode):
             Y_pred = model.predict_on_batch(X_batch)
             for i in range(Y_pred.shape[0]):
-                #truth = int(Y_batch[i])
-                #prediction = 1 if Y_pred[i] > 0.5 else 0                
                 predictions[pair_idx][run_idx] = Y_pred[i]
                 pair_idx += 1
     
     predictions_prob = np.average(predictions, axis=1)
-    #print("predictions_prob.shape", predictions_prob.shape)
-    #print("predictions[0:2, :]", predictions[0:2, :])
-    #print("predictions_prob[0:2]", predictions_prob[0:2])
     
     for pair_idx in range(X.shape[0]):
         truth = int(y[pair_idx])
@@ -153,27 +148,6 @@ def evaluate_model(model, X, y, ia, nb_runs):
             false_positives.append(img_pair)
         elif truth == 1 and prediction == 0:
             false_negatives.append(img_pair)
-        
-        
-    
-    """
-    for X_batch, Y_batch in flow_batches(X, y, ia, shuffle=False, train=False):
-        Y_pred = model.predict_on_batch(X_batch)
-        for i in range(Y_pred.shape[0]):
-            truth = int(Y_batch[i])
-            prediction = 1 if Y_pred[i] > 0.5 else 0
-            results[truth][prediction] += 1
-            if truth == 0 and prediction == 1:
-                # 0 is channel 0 (grayscale images, only 1 channel)
-                false_positives.append(X_batch[i, 0, :, 0:32])
-                false_positives.append(X_batch[i, 0, :, 32:])
-            elif truth == 1 and prediction == 0:
-                false_negatives.append(X_batch[i, 0, :, 0:32])
-                false_negatives.append(X_batch[i, 0, :, 32:])
-        #progbar.add(len(X_batch), values=[("train loss", loss), ("train acc", acc)])
-        #loss_train_sum += (loss * len(X_batch))
-        #acc_train_sum += (acc * len(X_batch))
-    """
     
     tp = results[1][1]
     tn = results[0][0]
@@ -206,59 +180,45 @@ def evaluate_model(model, X, y, ia, nb_runs):
     show_image_pairs(false_negatives[0:20])
 
 def show_image_pairs(image_pairs):
-    """Plot augmented variations of images.
+    """Plot pairs of images.
 
-    The images will all be shown in the same window.
-    It is recommended to not plot too many of them (i.e. stay below 100).
-
-    This method is intended to visualize the strength of your chosen
-    augmentations (so for debugging).
+    All pairs will be shown in the same window in two columns.
 
     Args:
-        images: A numpy array of images. See augment_batch().
-        augment: Whether to augment the images (True) or just display
-            them in the way they are (False).
-        show_plot: Whether to show the plot. False makes sense if you
-            don't have a graphical user interface on the machine.
-            (Default: True)
-
-    Returns:
-        The figure of the plot.
-        Use figure.savefig() to save the image.
+        images_pairs: A list of (image1, image2) where the images are numpy
+            arrays of shape (height, width) with pixel values.
     """
-    import matplotlib.pyplot as plt
-    import matplotlib.cm as cm
 
+    # 2 columns clearly visible in the plot,
+    # but internally handled as 6 columns
+    # | image 1a | image 1b | gap | image 2a | image 2b | gap
+    # | image 3a | image 3b | gap | image 4a | image 4b | gap
+    # ...
+    # placing a gap at the end of each line is not neccessary, but simplifies
+    # the loop
     nb_cols = 6
+    
+    # we need at least one row of images
+    # and additionally for every 6 cells filled (=>6 columns) another row
     nb_rows = 1 + int(len(image_pairs)*3 / nb_cols)
+    
     fig = plt.figure(figsize=(6, 12))
-    plot_number = 1
+    plot_number = 1 # index of the cell
 
     for i, (image1, image2) in enumerate(image_pairs):
-        #plot_number += 1
-        # visible gap between each two pairs
-        #if plot_number % 3 == 0:
-        #    plot_number += 1
-            
-        #image = images[i]
-
         # place img1
-        #print("%d / %d %d %d" % (len(image_pairs), nb_rows, nb_cols, plot_number))
         ax = fig.add_subplot(nb_rows, nb_cols, plot_number, xticklabels=[],
                              yticklabels=[])
         ax.set_axis_off()
         imgplot = plt.imshow(image1, cmap=cm.Greys_r, aspect="equal")
         
         # place img2
-        #print("%d / %d %d %d" % (len(image_pairs), nb_rows, nb_cols, plot_number))
         ax = fig.add_subplot(nb_rows, nb_cols, plot_number + 1, xticklabels=[],
                              yticklabels=[])
         ax.set_axis_off()
         imgplot = plt.imshow(image2, cmap=cm.Greys_r, aspect="equal")
 
-        plot_number += 2 # 2 images placed
-        #if (i+1) % 2 != 0:
-        plot_number += 1 # gap between columns of pairs
+        plot_number += 3 # 2 images placed, 1 image gap
 
     plt.show()
 
