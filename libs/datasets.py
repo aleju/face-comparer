@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 """File with helper functions to load test/validation/training sets from
 the root dataset of Labeled Faces in the Wild, grayscaled and cropped (which
-must already be on the hard drive)."""
+must already be on the hard drive).
+
+The main function to use is get_image_pairs().
+"""
 from __future__ import absolute_import, division, print_function
 import random
-from scipy import misc
+import re
 import os
 from collections import defaultdict
+from scipy import misc
 import numpy as np
-import re
 
 Y_SAME = 1
 Y_DIFFERENT = 0
@@ -109,8 +112,6 @@ def filepath_to_number(filepath):
         Number of that image (among all images of that person).
     """
     return int(re.sub(r"[^0-9]", "", filepath))
-
-
 
 def get_image_files(dataset_filepath, exclude_images=None):
     """Loads all images sorted by filenames and returns them as ImageFile Objects.
@@ -346,11 +347,11 @@ def image_pairs_to_xy(image_pairs):
         Y is a numpy array of dtype float32 with shape (N, 1) containg
         the 'same person'/'different person' information.
     """
-    X = np.zeros((len(image_pairs), 2, IMAGE_WIDTH, IMAGE_HEIGHT), dtype=np.uint8)
+    X = np.zeros((len(image_pairs), 2, IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8)
     y = np.zeros((len(image_pairs),), dtype=np.float32)
     
     for i, pair in enumerate(image_pairs):
-        X[i] = pair.get_x()
+        X[i] = pair.get_contents()
         y[i] = Y_SAME if pair.same_person else Y_DIFFERENT
     
     return X, y
