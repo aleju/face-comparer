@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+"""Script to test the performance of trained models."""
 from __future__ import absolute_import, division, print_function
 import argparse
 import os
@@ -22,6 +23,8 @@ np.random.seed(SEED)
 random.seed(SEED)
 
 def main():
+    """Main function, estimates the performance of a model on the training,
+    validation und test datasets."""
     # handle arguments from command line
     parser = argparse.ArgumentParser()
     parser.add_argument("identifier", help="Identifier of the experiment of which to load the weights.")
@@ -65,6 +68,9 @@ def main():
         raise Exception("Could not successfully load model weights")
     print("Loaded model weights of epoch '%s'" % (str(last_epoch)))
     
+    # If we just do one run over a set (training/val/test) we will not augment
+    # the images (ia_noop). If we do multiple runs, we will augment images in
+    # each run (ia).
     augmul = float(args.augmul) if args.augmul is not None else 1.50
     ia_noop = ImageAugmenter(64, 64)
     ia = ImageAugmenter(64, 64, hflip=True, vflip=False,
@@ -74,6 +80,16 @@ def main():
                         shear_deg=int(3*augmul),
                         translation_x_px=int(3*augmul),
                         translation_y_px=int(3*augmul))
+    
+    # ---------------
+    # Run the tests on the train/val/test sets.
+    # We will do a standard testing with one run over each set.
+    # We will also do a non-standard test for val and test set where we do
+    # multiple runs over the same images and augment them each time. Then
+    # we will average the predictions for each pair over the runs to come
+    # to a final conclusion.
+    # Using augmentation seems to improve the results very slightly (<1% difference).
+    # ---------------
     
     # only 1 run for training set, as 10 or more runs would take quite long
     # when tested, 10 runs seemed to improve the accuracy by a tiny amount
@@ -108,6 +124,31 @@ def main():
     print("Finished.")
     
 def evaluate_model(model, X, y, ia, nb_runs):
+    """Evaluate a model on a chosen datasets over N runs.
+    
+    Tests deal with:
+    - Accuracy (% correct)
+    - Error (% wrong)
+    - Recall
+    - Precision
+    - F1
+    - Confusion Matrix
+    
+    Additionally, up to 20 false positive pairs will be plotted
+    as well as up to 20 false negatives.
+    
+    If the number of runs N is equal to 1, then no augmentation will be applied.
+    If the number of runs N is >= 1, then the images will be augmented and
+      N predictions will be made for each pair of images. The predictions will
+      be averaged and if the average is >0.5 then the prediction is 1,
+      otherwise 0.
+    
+    Args:
+        model: The model to use for the predictions
+        X: Image pairs to predict on. (numpy array of shape (N, 2, 32, 32); float32.)
+        y: Labels of the image pairs to predict on. (numpy array of shape N, 1; float32.)
+        ia: ImageAugmenter to use.
+    """
     # results contains counts of true/false predictions
     # [1][1] is true positive (truth: same, pred: same)
     # [1][0] is false negative (truth: same, pred: diff)
@@ -137,8 +178,6 @@ def evaluate_model(model, X, y, ia, nb_runs):
         prediction = 1 if predictions_prob[pair_idx] > 0.5 else 0
         results[truth][prediction] += 1
         
-        #img1 = X[pair_idx, 0, :, 0:32]
-        #img2 = X[pair_idx, 0, :, 32:]
         img1 = X[pair_idx, 0, ...]
         img2 = X[pair_idx, 1, ...]
         img_pair = (img1, img2)
