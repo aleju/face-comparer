@@ -52,11 +52,8 @@ from utils.datasets import get_image_pairs, image_pairs_to_xy
 from utils.History import History
 
 SEED = 42
-#LFWCROP_GREY_FILEPATH = "/media/aj/grab/ml/datasets/lfwcrop_grey"
-#IMAGES_FILEPATH = LFWCROP_GREY_FILEPATH + "/faces"
 TRAIN_COUNT_EXAMPLES = 20000
 VALIDATION_COUNT_EXAMPLES = 256
-#TEST_COUNT_EXAMPLES = 0
 EPOCHS = 1000 * 1000
 BATCH_SIZE = 64
 SAVE_DIR = os.path.dirname(os.path.realpath(__file__)) + "/experiments"
@@ -65,7 +62,6 @@ SAVE_PLOT_FILEPATH = "%s/plots/{identifier}.png" % (SAVE_DIR)
 SAVE_CSV_FILEPATH = "%s/csv/{identifier}.csv" % (SAVE_DIR)
 SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
 SAVE_OPTIMIZER_STATE_DIR = "%s/optstate" % (SAVE_DIR)
-#SAVE_CODE_DIR = "%s/code/{identifier}" % (SAVE_DIR)
 SAVE_WEIGHTS_AFTER_EPOCHS = 1
 SHOW_PLOT_WINDOWS = True
 
@@ -143,13 +139,6 @@ def main():
     # initialize the network
     print("Creating model...")
     model, optimizer = create_model(args.dropout)
-    #model, optimizer = create_model1b(args.dropout)
-    #model, optimizer = create_model2(args.dropout)
-    #model, optimizer = create_model3(args.dropout)
-    #model, optimizer = create_model4(args.dropout)
-    #model, optimizer = create_model_nonorm(args.dropout)
-    #model, optimizer = create_model_full_border(args.dropout)
-    #model, optimizer = create_model_td_dense(args.dropout)
     
     # Calling the compile method seems to mess with the seeds (theano problem?)
     # Therefore they are reset here (numpy seeds seem to be unaffected)
@@ -161,12 +150,7 @@ def main():
     # -------------------
     # initialize the plotter for loss and accuracy
     la_plotter = LossAccPlotter(save_to_filepath=SAVE_PLOT_FILEPATH.format(identifier=args.identifier))
-    """
-    ia_train = ImageAugmenter(64, 64, hflip=True, vflip=False,
-                              scale_to_percent=1.15, scale_axis_equally=False,
-                              rotation_deg=25, shear_deg=8,
-                              translation_x_px=7, translation_y_px=7)
-    """
+    
     # intialize the image augmenters
     # they are going to rotate, shift etc. the images
     augmul = float(args.augmul)
@@ -237,410 +221,17 @@ def create_model(dropout=None):
     model.add(Reshape(64*4, int(336/4)))
     model.add(BatchNormalization((64*4, int(336/4))))
     
+    # GRU with 64*4 timesteps, each returning 64 values
     model.add(GRU(336/4, 64, return_sequences=True))
     model.add(Flatten())
     model.add(BatchNormalization((64*(64*4),)))
     model.add(Dropout(dropout))
     
+    # output neuron
     model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
     model.add(Activation("sigmoid"))
 
     optimizer = Adagrad()
-    
-    print("Compiling model...")
-    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
-    
-    return model, optimizer
-
-def create_model1b(dropout=None):
-    dropout = float(dropout) if dropout is not None else 0.00
-    print("Dropout will be set to {}".format(dropout))
-    
-    model = Sequential()
-    
-    # 32 x 32+2 x 64+2 = 32x34x66
-    model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    # 32 x 34-2 x 66-2 = 32x32x64
-    model.add(Convolution2D(32, 32, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    
-    # 32 x 32/2 x 64/2 = 32x16x32
-    model.add(MaxPooling2D(poolsize=(2, 2)))
-    
-    # 64 x 16-2 x 32-2 = 64x14x30
-    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    # 64 x 14-2 x 30-2 = 64x12x28
-    model.add(Convolution2D(64, 64, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(dropout))
-    
-    # 64x12x28 = 64x336 = 21504
-    # In 64*4 slices: 64*4 x 336/4 = 256x84
-    model.add(Reshape(64*4, int(336/4)))
-    model.add(BatchNormalization((64*4, int(336/4))))
-    
-    model.add(GRU(336/4, 128, return_sequences=True))
-    model.add(Flatten())
-    model.add(BatchNormalization((128*(64*4),)))
-    model.add(Dropout(dropout))
-    
-    model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
-    model.add(Activation("sigmoid"))
-
-    optimizer = Adagrad()
-    
-    print("Compiling model...")
-    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
-    
-    return model, optimizer
-
-def create_model4(dropout=None):
-    dropout = float(dropout) if dropout is not None else 0.00
-    print("Dropout will be set to {}".format(dropout))
-    
-    model = Sequential()
-    
-    # 64 x 32+2 x 64+2 = 64x34x66
-    model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    # 64 x 34-2 x 66-2 = 64x32x64
-    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    # 64 x 32-2 x 64-2 = 64x30x62
-    model.add(Convolution2D(128, 64, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    
-    # 128x15x31
-    model.add(MaxPooling2D(poolsize=(2, 2)))
-    
-    # 128x15x31 = 128x465 = 2*29760
-    model.add(Reshape(128, 465))
-    model.add(BatchNormalization((128, 465)))
-    
-    model.add(LSTM(465, 64, return_sequences=True))
-    model.add(Flatten())
-    model.add(BatchNormalization((128*64,)))
-    model.add(Dropout(dropout))
-    model.add(GaussianNoise(0.10))
-    model.add(GaussianDropout(0.10))
-    
-    model.add(Dense(128*64, 128, init="glorot_uniform", W_regularizer=l2(0.000001)))
-    model.add(LeakyReLU(0.33))
-    model.add(BatchNormalization((128,)))
-    model.add(Dropout(dropout))
-    model.add(GaussianNoise(0.00))
-    model.add(GaussianDropout(0.00))
-    
-    model.add(Dense(128, 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
-    model.add(Activation("sigmoid"))
-
-    optimizer = Adagrad()
-    
-    print("Compiling model...")
-    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
-    
-    return model, optimizer
-
-def create_model2(dropout=None):
-    dropout = float(dropout) if dropout is not None else 0.00
-    print("Dropout will be set to {}".format(dropout))
-    
-    model = Sequential()
-    
-    model.add(GaussianNoise(0.05))
-    
-    # 4x34x66
-    model.add(Convolution2D(4, 1, 3, 3, border_mode="full"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    
-    # 8x32x64
-    model.add(Convolution2D(8, 4, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    
-    # 16x30x62
-    model.add(Convolution2D(16, 8, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    
-    # 32x28x60
-    model.add(Convolution2D(32, 16, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    
-    # 32x14x30
-    model.add(MaxPooling2D(poolsize=(2, 2)))
-    
-    # 64x12x28
-    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    
-    # 64*12*28 = 64*336 = 64*4 * 84
-    model.add(Reshape(64*4, 336//4))
-    model.add(BatchNormalization((64*4, 336//4)))
-    model.add(GaussianNoise(0.1))
-    model.add(GaussianDropout(0.1))
-    
-    # GRU over 64*4 slices
-    model.add(GRU(336//4, 64, return_sequences=True))
-    model.add(Flatten())
-    model.add(BatchNormalization((64*(64*4),)))
-    model.add(Dropout(dropout))
-    model.add(GaussianNoise(0.1))
-    model.add(GaussianDropout(0.1))
-    
-    # Dense from 64*4 slices, each 64 nodes (64*4*64) into 64 nodes
-    model.add(Dense(64*4*64, 64, init="glorot_uniform", W_regularizer=l2(0.00001)))
-    model.add(LeakyReLU(0.33))
-    model.add(BatchNormalization((64,)))
-    model.add(Dropout(dropout))
-    model.add(GaussianNoise(0.05))
-    model.add(GaussianDropout(0.05))
-    
-    # Output
-    model.add(Dense(64, 1, init="glorot_uniform", W_regularizer=l2(0.00001)))
-    model.add(Activation("sigmoid"))
-
-    optimizer = Adagrad()
-    
-    print("Compiling model...")
-    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
-    
-    return model, optimizer
-
-def create_model3(dropout=None):
-    dropout = float(dropout) if dropout is not None else 0.00
-    print("Dropout will be set to {}".format(dropout))
-    
-    model = Sequential()
-    
-    model.add(GaussianNoise(0.05))
-    
-    # 8x34x66
-    model.add(Convolution2D(8, 1, 3, 3, border_mode="full"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    model.add(GaussianNoise(0.00))
-    model.add(GaussianDropout(0.00))
-    
-    # 16x32x64
-    model.add(Convolution2D(16, 8, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    model.add(GaussianNoise(0.00))
-    model.add(GaussianDropout(0.00))
-    
-    # 16x16x32
-    model.add(MaxPooling2D(poolsize=(2, 2)))
-    
-    # 32x14x30
-    model.add(Convolution2D(32, 16, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    model.add(GaussianNoise(0.00))
-    model.add(GaussianDropout(0.00))
-    
-    # 64x12x28
-    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    model.add(GaussianNoise(0.00))
-    model.add(GaussianDropout(0.00))
-    
-    # 64x6x14
-    model.add(MaxPooling2D(poolsize=(2, 2)))
-    
-    # 128x4x12
-    model.add(Convolution2D(128, 64, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    model.add(GaussianNoise(0.00))
-    model.add(GaussianDropout(0.00))
-    
-    # 128*4*12 = 128*48
-    model.add(Reshape(128, 48))
-    model.add(BatchNormalization((128, 48)))
-    model.add(GaussianNoise(0.1))
-    model.add(GaussianDropout(0.1))
-    
-    # LSTM over 128 slices
-    model.add(LSTM(48, 64, return_sequences=True))
-    model.add(Flatten())
-    model.add(BatchNormalization((128*64),))
-    model.add(Dropout(dropout))
-    model.add(GaussianNoise(0.1))
-    model.add(GaussianDropout(0.1))
-    
-    # Dense from 64*4 slices, each 64 nodes (64*4*64) into 64 nodes
-    model.add(Dense(128*64, 64, init="glorot_uniform", W_regularizer=l2(0.00001)))
-    model.add(LeakyReLU(0.33))
-    model.add(BatchNormalization((64,)))
-    model.add(Dropout(dropout))
-    model.add(GaussianNoise(0.05))
-    model.add(GaussianDropout(0.05))
-    
-    # Output
-    model.add(Dense(64, 1, init="glorot_uniform", W_regularizer=l2(0.00001)))
-    model.add(Activation("sigmoid"))
-
-    optimizer = Adagrad()
-    
-    print("Compiling model...")
-    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
-    
-    return model, optimizer
-
-def create_model_nonorm(dropout=None):
-    dropout = float(dropout) if dropout is not None else 0.00
-    print("Dropout will be set to {}".format(dropout))
-    
-    model = Sequential()
-    
-    # 32 x 32+2 x 64+2 = 32x34x66
-    model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    # 32 x 34-2 x 66-2 = 32x32x64
-    model.add(Convolution2D(32, 32, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    
-    # 32 x 32/2 x 64/2 = 32x16x32
-    model.add(MaxPooling2D(poolsize=(2, 2)))
-    
-    # 64 x 16-2 x 32-2 = 64x14x30
-    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    # 64 x 14-2 x 30-2 = 64x12x28
-    model.add(Convolution2D(64, 64, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(dropout))
-    
-    # 64x12x28 = 64x336 = 21504
-    # In 64*4 slices: 64*4 x 336/4 = 256x84
-    model.add(Reshape(64*4, int(336/4)))
-    #model.add(BatchNormalization((64*4, int(336/4))))
-    model.add(GaussianNoise(0.1))
-    
-    model.add(GRU(336/4, 64, return_sequences=True))
-    model.add(Flatten())
-    model.add(BatchNormalization((64*(64*4),)))
-    model.add(GaussianNoise(0.1))
-    model.add(Dropout(dropout))
-    
-    model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
-    model.add(Activation("sigmoid"))
-
-    optimizer = Adagrad()
-    
-    print("Compiling model...")
-    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
-    
-    return model, optimizer
-
-def create_model_full_border(dropout=None):
-    dropout = float(dropout) if dropout is not None else 0.00
-    print("Dropout will be set to {}".format(dropout))
-    
-    model = Sequential()
-    
-    # 32 x 32+2 x 64+2 = 32x34x66
-    model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    # 32 x 34+2 x 66+2 = 32x36x68
-    model.add(Convolution2D(32, 32, 3, 3, border_mode="full"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    
-    # 32 x 36/2 x 68/2 = 32x18x34
-    model.add(MaxPooling2D(poolsize=(2, 2)))
-    
-    # 64 x 18+2 x 34+2 = 64x20x36
-    model.add(Convolution2D(64, 32, 3, 3, border_mode="full"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    # 64 x 20+2 x 36+2 = 64x22x38
-    model.add(Convolution2D(64, 64, 3, 3, border_mode="full"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(dropout))
-    
-    # 64x22x38 = 64x836 = 53504
-    # In 64*4 slices: 64*4 x 836/4 = 256x209
-    model.add(Reshape(64*4, int(836/4)))
-    model.add(BatchNormalization((64*4, int(836/4))))
-    
-    model.add(GRU(836/4, 64, return_sequences=True))
-    model.add(Flatten())
-    model.add(BatchNormalization((64*(64*4),)))
-    model.add(Dropout(dropout))
-    
-    model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
-    model.add(Activation("sigmoid"))
-
-    optimizer = Adagrad()
-    
-    print("Compiling model...")
-    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
-    
-    return model, optimizer
-
-def create_model_td_dense(dropout=None):
-    dropout = float(dropout) if dropout is not None else 0.00
-    print("Dropout will be set to {}".format(dropout))
-    
-    model = Sequential()
-    
-    # 8 x 32+2 x 64+2 = 8x34x66
-    model.add(Convolution2D(8, 1, 3, 3, border_mode="full"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    # 16 x 34-2 x 66-2 = 16x32x64
-    model.add(Convolution2D(16, 8, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    
-    # 16 x 32/2 x 64/2 = 16x16x32
-    model.add(MaxPooling2D(poolsize=(2, 2)))
-    
-    # 32 x 16-2 x 32-2 = 32x14x30
-    model.add(Convolution2D(32, 16, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
-    # 64 x 14-2 x 30-2 = 64x12x28
-    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
-    model.add(LeakyReLU(0.33))
-    
-    # 64 x 12/2 x 28/2 = 64x6x14
-    model.add(MaxPooling2D(poolsize=(2, 2)))
-    
-    # 64x6x14 = 64x84 = 5376
-    # In 64*4 slices: 64*4 x 84/4 = 256x21
-    model.add(Reshape(64*4, 84//4))
-    model.add(BatchNormalization((64*4, 84//4)))
-    model.add(Dropout(dropout))
-    
-    model.add(TimeDistributedDense(84//4, 1, init="glorot_uniform", W_regularizer=l2(0.00001)))
-    model.add(Activation("sigmoid"))
-    model.add(Flatten())
-    model.add(Dropout(0.00))
-    
-    model.add(Dense(256, 1, init="glorot_uniform", W_regularizer=l2(0.00001)))
-    model.add(Activation("sigmoid"))
-
-    #optimizer = Adagrad()
-    optimizer = Adam()
     
     print("Compiling model...")
     model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
