@@ -190,15 +190,50 @@ def main():
     print("Finished.")
 
 def create_model(dropout=None):
+    """Creates, compiles and returns the neural net with an Adagrad optimizer object.
+    
+    Structure of the network:
+        1. Input: (BatchSize, 1, 32, 64) -- two grayscale images next to each other
+        2. Conv2D, 32 output planes, kW/kH=3/3, Activation=LeakyReLU(0.33)
+        3. Conv2D, 32 output planes, kW/kH=3/3, Activation=LeakyReLU(0.33)
+        4. Max pooling kW/kH=2/2
+        5. Conv2D, 64 output planes, kW/kH=3/3, Activation=LeakyReLU(0.33)
+        6. Conv2D, 64 output planes, kW/kH=3/3, Activation=LeakyReLU(0.33)
+        7. Dropout
+        8. Reshape conv layer results from 64 images to 64 times 4 slices of images
+        9. Normalize
+        10. GRU (processes each slice, 64 nodes per timestep)
+        11. Flatten GRU results to 1D vector
+        12. Normalize
+        13. Dropout
+        14. Fully connected layer from (64*4)*64 to 1 neuron, Activation=sigmoid
+        15. Output: 1 value between 0 and 1
+    
+    Args:
+        dropout: Dropout probability to use after the conv-layers and after
+            the GRU.
+    Returns:
+        Tuple of (neural net, optimizer), where the optimizer is Adagrad.
+    """
     dropout = float(dropout) if dropout is not None else 0.00
     print("Dropout will be set to {}".format(dropout))
     
     model = Sequential()
     
+    # Note: using dropout(0.00) in the network enables us to load an old
+    # network's weights and set the dropout at these positions to >0.00 by
+    # changing the code here. If we would not have these layers, adding them
+    # (with p>0.00) and then loading an old network would result in a layer
+    # number mismatch and the weights could no longer be associated properly.
+    
+    # -----
+    # Convolutional Layers
+    # -----
     # 32 x 32+2 x 64+2 = 32x34x66
     model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.00))
+    
     # 32 x 34-2 x 66-2 = 32x32x64
     model.add(Convolution2D(32, 32, 3, 3, border_mode="valid"))
     model.add(LeakyReLU(0.33))
@@ -211,23 +246,35 @@ def create_model(dropout=None):
     model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.00))
+    
     # 64 x 14-2 x 30-2 = 64x12x28
     model.add(Convolution2D(64, 64, 3, 3, border_mode="valid"))
     model.add(LeakyReLU(0.33))
     model.add(Dropout(dropout))
     
+    # -----
+    # Reshape the output of the conv layers to 64 times 4 slices (roughly hairline,
+    # eyeline, noseline, mouthline)
+    # -----
     # 64x12x28 = 64x336 = 21504
     # In 64*4 slices: 64*4 x 336/4 = 256x84
     model.add(Reshape(64*4, int(336/4)))
     model.add(BatchNormalization((64*4, int(336/4))))
     
+    # -----
+    # GRU / Recurrent Layer
+    # processes each slice on its own
+    # -----
     # GRU with 64*4 timesteps, each returning 64 values
     model.add(GRU(336/4, 64, return_sequences=True))
     model.add(Flatten())
     model.add(BatchNormalization((64*(64*4),)))
     model.add(Dropout(dropout))
     
-    # output neuron
+    # -----
+    # Output layer
+    # We only need one output neuron, therefore a softmax is unneccessary
+    # -----
     model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
     model.add(Activation("sigmoid"))
 
@@ -381,7 +428,7 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
         
         # resize and merge the pairs of images to shape (B, 1, 32, 64), where
         # B is the size of this batch and 1 represents the only channel
-        # of the image.
+        # of the image (grayscale).
         X_batch = np.zeros((nb_samples, 1, 32, 64))
         for i in range(nb_samples):
             # sometimes switch positions (left/right) of images during training
@@ -421,9 +468,6 @@ def validate_identifier(identifier, must_exist=True):
         identifier: Identifier to check for validity.
         must_exist: If set to true and no experiment uses the identifier yet,
             an error will be raised.
-    
-    Returns:
-        void
     """
     if not identifier or identifier != re.sub("[^a-zA-Z0-9_]", "", identifier):
         raise Exception("Invalid characters in identifier, only a-z A-Z 0-9 and _ are allowed.")
