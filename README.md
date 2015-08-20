@@ -71,56 +71,57 @@ All activations are **Leaky ReLUs** with alpha 0.33, except for inner activation
 
 The graph shows the training progress of the included example model over ~1,900 epochs. The red lines show the training set values (loss function and accuracy), while the blue lines show the validation set values. Light/Transparent lines are the real values, thicker/opaque lines are averages over the last 20 epochs. The sudden decrease of the training set results at ~1,500 came from an increase of the augmentation strength (multiplier increased from 1.2 to 1.5).
 
-**Training set** (20k pairs)
+## Training set (20k pairs)
 
 * Accuracy 94.14%
 * Recall 0.9474
 * Precision 0.9362
 * F1 0.9417
 
-           | same   | different  | <span style="font-weight:normal">TRUTH</span>
----------- | ------ | ---------- | -----
-     same  | 9474   | 646        |
-different  | 526    | 9354       |
----------- | ------ | ---------- |
-PREDICTION |
+               | same   | different  | TRUTH
+-------------- | ------ | ---------- | -----
+**same**       | 9474   | 646        |
+**different**  | 526    | 9354       |
+**PREDICTION** |
 
-**Validation set** (256 pairs)
+## Validation set (256 pairs)
 
 * Accuracy 89.06%
 * Recall 0.9141
 * Precision 0.8731
 * F1 0.8931
 
-           | same   | different  | <span style="font-weight:normal">TRUTH</span>
----------- | ------ | ---------- | -----
-     same  | 117    | 17         |
-different  | 11     | 111        |
----------- | ------ | ---------- |
-PREDICTION |
+               | same   | different  | TRUTH
+-------------- | ------ | ---------- | -----
+**same**       | 117    | 17         |
+**different**  | 11     | 111        |
+**PREDICTION** |
 
-**Test set** (512 pairs)
+The results of the validation set and the test set (below) are averaged over 50 augmented runs (so each image pair was augmented 50 times, 50 predictions were made, resulting in 50 probabilities between 0.0 and 1.0 and these values were averaged). Using 50 runs with augmentation instead of 1 run without resulted in very slightly improved results (might be down to luck).
+
+## Test set (512 pairs)
 
 * Accuracy 88.48%
 * Recall 0.9062
 * Precision 0.8689
 * F1 0.8872
 
-           | same   | different  | <span style="font-weight:normal">TRUTH</span>
----------- | ------ | ---------- | -----
-     same  | 232    | 35         |
-different  | 24     | 221        |
----------- | ------ | ---------- |
-PREDICTION |
+               | same   | different  | TRUTH
+-------------- | ------ | ---------- | -----
+ **same**      | 232    | 35         |
+**different**  | 24     | 221        |
+**PREDICTION** |
 
-The results of the validation set and test set are averaged over 50 augmented runs (so each image pair was augmented 50 times, 50 predictions were made, resulting in 50 probabilities between 0.0 and 1.0 and these values were averaged). Using 50 runs with augmentation instead of 1 run without resulted in very slightly improved results (might be down to luck).
+## Examples of false positives (validation set)
 
-Examples of **false positives** in the *validation set* (image pair contained different persons, but network thought they were the same person):
+False positives here are image pairs that show different persons, but were classified by the network as showing the same person.
 
 ![False positives on the validation dataset](images/val_false_positives_cropped.png?raw=true "False positives on the validation dataset")
 
 
-Examples of **false negatives** in the *validation set* (image pair contained the same person, but network thought the images showed different persons):
+## Examples of false negatives (validation set)
+
+False negatives here are image pairs that show the same person, but were classified by the network as showing different persons.
 
 ![False negatives on the validation dataset](images/val_false_negatives_cropped.png?raw=true "False negatives on the validation dataset")
 
