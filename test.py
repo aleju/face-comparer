@@ -8,7 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from train import validate_identifier, flow_batches, create_model
-from utils.datasets import get_image_pairs, image_pairs_to_xy
+from utils.datasets import get_image_pairs, image_pairs_to_xy, plot_dataset_skew
 from utils.saveload import load_weights
 from libs.ImageAugmenter import ImageAugmenter
 
@@ -18,6 +18,7 @@ VALIDATION_COUNT_EXAMPLES = 256
 TEST_COUNT_EXAMPLES = 512
 SAVE_DIR = os.path.dirname(os.path.realpath(__file__)) + "/experiments"
 SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
+SHOW_PLOT_WINDOWS = True
 
 np.random.seed(SEED)
 random.seed(SEED)
@@ -60,6 +61,16 @@ def main():
     assert len(pairs_test) == TEST_COUNT_EXAMPLES
     X_test, y_test = image_pairs_to_xy(pairs_test)
     print("")
+
+    # Plot dataset skew
+    print("Plotting dataset skew. (Only for pairs of images showing the same person.)")
+    print("More unequal bars mean that the dataset is more skewed (towards very few people).")
+    print("Close the chart to continue.")
+    plot_dataset_skew(
+        pairs_train, pairs_val, pairs_test,
+        only_y_same=True,
+        show_plot_windows=SHOW_PLOT_WINDOWS
+    )
 
     print("Creating model...")
     model, _ = create_model(0.00)

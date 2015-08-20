@@ -81,8 +81,8 @@ def main():
     parser.add_argument("identifier", help="A short name/identifier for your experiment, e.g. 'ex42b_more_dropout'.")
     parser.add_argument("--images", required=True, help="Filepath to the 'faces/' subdirectory in the 'Labeled Faces in the Wild grayscaled and cropped' dataset.")
     parser.add_argument("--load", required=False, help="Identifier of a previous experiment that you want to continue (loads weights, optimizer state and history).")
-    parser.add_argument("--dropout", required=False, help="Dropout rate (0.0 - 1.0) after the last conv-layer and after the GRU layer. Default is 0.0.")
-    parser.add_argument("--augmul", required=False, help="Multiplicator for the augmentation (0.0=no augmentation, 1.0=normal aug., 2.0=rather strong aug.). Default is 1.0.")
+    parser.add_argument("--dropout", required=False, help="Dropout rate (0.0 - 1.0) after the last conv-layer and after the GRU layer. Default is 0.5.")
+    parser.add_argument("--augmul", required=False, help="Multiplicator for the augmentation (0.0=no augmentation, 1.0=normal aug., 2.0=rather strong aug.). Default is 1.5.")
     args = parser.parse_args()
     validate_identifier(args.identifier, must_exist=False)
     
@@ -99,7 +99,7 @@ def main():
                 return
 
     if args.augmul is None:
-        args.augmul = 1.0
+        args.augmul = 1.5
 
     # load validation set
     # we load this before the training set so that it is less skewed (otherwise
@@ -217,7 +217,7 @@ def create_model(dropout=None):
     Returns:
         Tuple of (neural net, optimizer), where the optimizer is Adagrad.
     """
-    dropout = float(dropout) if dropout is not None else 0.00
+    dropout = float(dropout) if dropout is not None else 0.50
     print("Dropout will be set to {}".format(dropout))
     
     model = Sequential()

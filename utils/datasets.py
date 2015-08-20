@@ -388,12 +388,13 @@ def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True, n_hi
     plt.subplots_adjust(hspace=0.5)
     
     # Header/Title of the whole plot
-    title = "Amount of images per person in each dataset.\n"
-          "A higher bar means that more images of that person appear in the dataset (more skew).\n"
+    title = "Amount of images per person in each dataset. " \
+            "A higher bar means that more images of that person appear in the dataset.\n" \
+            "More unequal bar heights means more skew.\n"
     if only_y_same:
-        title += "Counts are only based on pairs of images showing the same person.\n"
-    title += "SHOWING ONLY THE %d PERSONS WITH HIGHEST VALUES (per dataset)" % (n_highest)
-    plt.title(title)
+        title += "Counts are only based on pairs of images showing the same person. "
+    title += "Showing only the %d persons with highest values (per dataset)." % (n_highest)
+    fig.suptitle(title, fontsize=14)
     
     
     def plot_one_chart(ax, pairs, dataset_name, n_highest_legend=15):
@@ -435,7 +436,7 @@ def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True, n_hi
         # below the x axis
         ax.set_ylabel("Count of images")
         ax.set_xlabel("Person name")
-        ax.set_title("Dataset '%s'" % (dataset_name,))
+        ax.set_title(dataset_name)
         
         ax.set_xticks(bars_positions + bars_width)
         ax.set_xticklabels(tuple(bars_names_short), rotation=90, size="x-small")
@@ -456,10 +457,9 @@ def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True, n_hi
             else:
                 text_arr2.append(item)
         textstr = " ".join(text_arr2)
-        textstr += " (+%d others shown of total %d persons)" % (len(bars_names) - n_highest_legend, len(name_to_images))
+        textstr += " (+%d others shown of total %d persons)" % (max(0, len(bars_names) - n_highest_legend), len(name_to_images))
         
-        mean = np.mean(only_counts)
-        if len(images) > 0:
+        if len(pairs) > 0:
             textstr += " (median=%.1f, mean=%.1f, std=%.2f)" % (np.median(only_counts), np.mean(only_counts), np.std(only_counts))
         else:
             textstr += " (median=%.1f, mean=%.1f, std=%.2f)" % (0, 0, 0)
@@ -467,7 +467,7 @@ def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True, n_hi
         ax.text(0.3, 0.96, textstr, transform=ax.transAxes, fontsize=8, verticalalignment="top", bbox=dict(alpha=0.5))
         # ----
     
-    plot_one_chart(ax1, pairs_train, "Train (%d samples)" % (len(pairs_test)))
+    plot_one_chart(ax1, pairs_train, "Train (%d samples)" % (len(pairs_train)))
     plot_one_chart(ax2, pairs_val, "Validation (%d samples)" % (len(pairs_val)))
     plot_one_chart(ax3, pairs_test, "Test (%d samples)" % (len(pairs_test)))
     
