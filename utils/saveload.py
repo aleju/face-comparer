@@ -5,6 +5,7 @@ import os
 import os.path
 import h5py
 import sys
+import re
 from History import History
 
 def load_previous_model(identifier, model, optimizer, la_plotter, opt_dir, weights_dir, csv_filepath):
