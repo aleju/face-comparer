@@ -50,38 +50,19 @@ The neural network has the following architecture, layer by layer:
 5. Convolution 2D, 64 channels, 3x3 (valid border mode)
 6. Convolution 2D, 64 channels, 3x3 (valid border mode)
 7. Dropout (0.5 by default)
-8. Reshape from shape (64, 12, 28) to (64*4, 12*28 / 4), which roughly converts every pair of images into 4 slices (hairline, eyeline, noseline, mouthline).
+8. Reshape from shape (64, 12, 28) to (64\*4, 12\*28 / 4), which roughly converts every pair of images into 4 slices (hairline, eyeline, noseline, mouthline).
 9. BatchNormalization
-10. GRU with 64 neurons per timestep and 64*4 timesteps (slices). Each timestep's results are fed to the next layer, creating (64*4) * 64 outputs.
-11. Flatten / Reshape to shape (64*4*64,), i.e. one-dimensional vector
+10. GRU with 64 neurons per timestep and 64\*4 timesteps (slices). Each timestep's results are fed to the next layer, creating (64\*4) \* 64 outputs.
+11. Flatten / Reshape to shape (64\*4\*64,), i.e. one-dimensional vector
 12. BatchNormalization
 13. Dropout (0.5 by default)
-14. Dense / Fully connected layer from 64*4*64 neurons to 1 neuron
+14. Dense / Fully connected layer from 64\*4\*64 neurons to 1 neuron
 
 Training was done with the *Adagrad* optimizer.
 
 All activations are *Leaky ReLUs* with alpha 0.33, except for inner activations of the GRU (sigmoid and hard sigmoid, Keras default configuration) and the last dense layer (sigmoid).
 An weak L2 norm of 0.000001 is applied to the last dense layer, just to prevent weights from going crazy.
 
-The network performed best among many, many other tested architectures (though I'm hardware constrained, so I usually have to stop quite early). The GRU layer was chosen, because it seemed to perform just as good as dense layers and maxout layers, but required significantly less disk space to save. I also had the impression that it was less prone to overfitting and in theory should be better at counting how many slices of images seem to match (same person) than dense layers.
-
-Other architectures and techniques tested (recalled from memory):
-* Sigmoid, Tanh, ReLUs, PReLUs, LeakyReLUs(0.15), LeakyReLUs(0.66). They all all performed significantly worse (including ReLUs), except for LeakyReLUs(0.15), which only seemed to be slightly worse than LeakyReLUs(0.33). PReLUs were a good 5% worse. The order seemed to be roughly: LeakyReLUs(0.33) > LeakyReLUs(0.15) > PReLUs > ReLUs > tanh > sigmoid > LeakyReLUs(0.66).
-* Larger images of size 64x64 instead of 32x32. Seemed to only increase overfitting and training time per epoch.
-* Using not the original images, but instead images after a canny edge detector was applied (i.e. black and white images, where edges are white). Performed significantly worse.
-* Feeding the images in shape (2, 32, 32) into the network (one image with 2 channels, where each channel is one of the two images) instead of (1, 32, 64). Performed significantly worse (5-10% val. accuracy lost).
-* Feeding the images in shape (1, 64, 32) where the first row contained the left half of image1 and the right half of image2, analogous for the second row. Performed worse.
-* Using Adam optimizer. Seemed to increase overfitting.
-* Various other convolution layer architectures. Examples would be: 4 channels into 8, 16, ...; growing the channel number up to 128 channels; using larger kernels (5x5). All of these architectures seemed to perform slightly or significantly worse. The ones ending in 128 channels routinely overfitted.
-* Using only full border mode on the convolutional layers. One run seemed to end up a bit better (~1%), but a later one didn't reproduce that, so i assume that it doesn't really help.
-* LSTM instead of GRU. Seemed to perform worse, but not thoroughly tested.
-* No BatchNormalization. The network failed to learn anything. The last normalization layer after the GRU seems to be simply neccessary.
-* Dropout between Conv-Layers. Seemed to only worsen the results.
-* Lower Dropout rates than 0.5. Performs worse (around 1-3% val. accuracy).
-* Higher Dropout rates than 0.5. Seemed to help.
-* Gaussian Noise and Gaussian Dropout between the layers. Seemed to only worsen the results.
-* Reshaping to 64 images instead of 64*4 slices. Seemed to worsen results.
-* Dense layers and maxout layers instead of GRU. Seemed to not improve anything at higher hdd-space requirement.
 
 # Results
 
@@ -179,6 +160,29 @@ Tanh:
 
 Sigmoid:
 ![Model trained on 8k examples with sigmoid activation](images/m23r8k_sigmoid_cropped.jpg?raw=true "Model trained on 8k examples with sigmoid activation")
+
+
+# Other architectures tested
+
+The chosen network architecture performed best among many, many other tested architectures (though I'm hardware constrained, so I usually have to stop runs earlier than I would like to). The GRU layer was chosen, because it seemed to perform just as good as dense layers and maxout layers, but required significantly less disk space to save. I also had the impression that it was less prone to overfitting and in theory should be better at counting how many slices of images seem to match (same person) than dense layers.
+
+Other architectures and techniques tested (recalled from memory):
+* Sigmoid, Tanh, ReLUs, PReLUs, LeakyReLUs(0.15), LeakyReLUs(0.66). They all all performed significantly worse (including ReLUs), except for LeakyReLUs(0.15), which only seemed to be slightly worse than LeakyReLUs(0.33). PReLUs were a good 5% worse. The order seemed to be roughly: LeakyReLUs(0.33) > LeakyReLUs(0.15) > PReLUs > ReLUs > tanh > sigmoid > LeakyReLUs(0.66).
+* Larger images of size 64x64 instead of 32x32. Seemed to only increase overfitting and training time per epoch.
+* Using not the original images, but instead images after a canny edge detector was applied (i.e. black and white images, where edges are white). Performed significantly worse.
+* Feeding the images in shape (2, 32, 32) into the network (one image with 2 channels, where each channel is one of the two images) instead of (1, 32, 64). Performed significantly worse (5-10% val. accuracy lost).
+* Feeding the images in shape (1, 64, 32) where the first row contained the left half of image1 and the right half of image2, analogous for the second row. Performed worse.
+* Using Adam optimizer. Seemed to increase overfitting.
+* Various other convolution layer architectures. Examples would be: 4 channels into 8, 16, ...; growing the channel number up to 128 channels; using larger kernels (5x5). All of these architectures seemed to perform slightly or significantly worse. The ones ending in 128 channels routinely overfitted.
+* Using only full border mode on the convolutional layers. One run seemed to end up a bit better (~1%), but a later one didn't reproduce that, so i assume that it doesn't really help.
+* LSTM instead of GRU. Seemed to perform worse, but not thoroughly tested.
+* No BatchNormalization. The network failed to learn anything. The last normalization layer after the GRU seems to be simply neccessary.
+* Dropout between Conv-Layers. Seemed to only worsen the results.
+* Lower Dropout rates than 0.5. Performs worse (around 1-3% val. accuracy).
+* Higher Dropout rates than 0.5. Seemed to help.
+* Gaussian Noise and Gaussian Dropout between the layers. Seemed to only worsen the results.
+* Reshaping to 64 images instead of 64*4 slices. Seemed to worsen results.
+* Dense layers and maxout layers instead of GRU. Seemed to not improve anything at higher hdd-space requirement.
 
 
 # Notes
