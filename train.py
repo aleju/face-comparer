@@ -58,7 +58,7 @@ EPOCHS = 1000 * 1000
 BATCH_SIZE = 64
 SAVE_DIR = os.path.dirname(os.path.realpath(__file__)) + "/experiments"
 SAVE_PLOT_FILEPATH = "%s/plots/{identifier}.png" % (SAVE_DIR)
-#SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_distribution.png" % (SAVE_DIR)
+SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_distribution.png" % (SAVE_DIR)
 SAVE_CSV_FILEPATH = "%s/csv/{identifier}.csv" % (SAVE_DIR)
 SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
 SAVE_OPTIMIZER_STATE_DIR = "%s/optstate" % (SAVE_DIR)
@@ -127,14 +127,16 @@ def main():
     X_val, y_val = image_pairs_to_xy(pairs_val)
     X_train, y_train = image_pairs_to_xy(pairs_train)
 
-    """
+    # Plot dataset skew
+    print("Plotting dataset skew. (Only for pairs of images showing the same person.)")
+    print("More unequal bars mean that the dataset is more skewed (towards very few people).")
+    print("Close the chart to continue.")
     plot_person_img_distribution(
-        img_filepaths_test, img_filepaths_val, img_filepaths_train,
-        only_y_value=Y_SAME,
+        pairs_train, pairs_val, [],
+        only_y_same=True,
         show_plot_windows=SHOW_PLOT_WINDOWS,
-        save_to_filepath=SAVE_DISTRIBUTION_PLOT_FILEPATH
+        save_to_filepath=SAVE_DISTRIBUTION_PLOT_FILEPATH.format(identifier=identifier)
     )
-    """
 
     # initialize the network
     print("Creating model...")

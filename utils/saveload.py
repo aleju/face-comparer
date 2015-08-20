@@ -6,7 +6,6 @@ import os.path
 import h5py
 import sys
 from History import History
-import matplotlib.pyplot as plt
 
 def load_previous_model(identifier, model, optimizer, la_plotter, opt_dir, weights_dir, csv_filepath):
     """Loads the model of a previous experiment with the provided identifier

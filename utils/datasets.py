@@ -12,6 +12,7 @@ import os
 from collections import defaultdict
 from scipy import misc
 import numpy as np
+import matplotlib.pyplot as plt
 
 Y_SAME = 1
 Y_DIFFERENT = 0
@@ -356,18 +357,61 @@ def image_pairs_to_xy(image_pairs):
     
     return X, y
 
-def plot_dataset_skew(pairs_test, pairs_val, pairs_train, only_same=True, show_plot_windows=True, save_to_filepath=None):
-    #nrows = sum([1 for ds in [pairs_test, pairs_val, pairs_train] if len(ds) > 0])
-    nrows = 3
-    fig, (ax1, ax2, ax3) = plt.subplots(nrows=nrows, figsize=(20, 12))
-    plt.subplots_adjust(hspace=0.5)
-    color = "b"
+def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True, n_highest=250, show_plot_windows=True, save_to_filepath=None):
+    """Draw barcharts showing the number of pictures per person for each dataset (train, val, test).
+    
+    Each bar in the chart resembles one person and is higher if there are
+    more images of that person in the dataset. The bars are ordered descending
+    (person with the most images first). Only the first 250 persons are shown.
+    
+    A barchart with very unequal bar heights resembles a skewed dataset where
+    a small amount of different persons make up most of the images, while a lot
+    of other persons in the dataset have barely any images associated with them.
+    
+    Args:
+        pairs_train: List of pairs of images (ImagePair) of the training dataset.
+        pairs_val: List of pairs of images (ImagePair) of the validation dataset.
+        pairs_test: List of pairs of images (ImagePair) of the test dataset.
+        only_y_same: Calculate all statistics only for pairs of images showing
+            the same person (True). The skew is usually significantly stronger
+            for these pairs. (Default is True.)
+        n_highest: Limits each bar chart to only the N persons with the highest
+            amounts of images in the dataset. (Instead of showing the bars for
+            all persons.) (Default is 250.)
+        show_plot_windows: Whether to open the plot in a new window. (Default is True.)
+        save_to_filepath: Full path to a file to which the plot will be saved.
+    """
+    color = "b" # color of bars (blue)
     bars_width = 0.2
     
-    def plot_one_chart(ax, pairs, dataset_name, n_highest=250, n_highest_legend=15, first=False):
+    fig, (ax1, ax2, ax3) = plt.subplots(nrows=3, figsize=(20, 12))
+    plt.subplots_adjust(hspace=0.5)
+    
+    # Header/Title of the whole plot
+    title = "Amount of images per person in each dataset.\n"
+          "A higher bar means that more images of that person appear in the dataset (more skew).\n"
+    if only_y_same:
+        title += "Counts are only based on pairs of images showing the same person.\n"
+    title += "SHOWING ONLY THE %d PERSONS WITH HIGHEST VALUES (per dataset)" % (n_highest)
+    plt.title(title)
+    
+    
+    def plot_one_chart(ax, pairs, dataset_name, n_highest_legend=15):
+        """This subfunction draws the bar chart of one dataset.
+        It will be called for training, validation and test dataset.
+        
+        Args:
+            ax: The matplotlib ax to draw to.
+            pairs: List of pairs of images (ImagePair) of the dataset.
+            dataset_name: Name of the dataset (subplot title).
+            n_highest_legend: Number of people (with highest counts) to show in
+                the legend. The legend translates from abbreviated names to
+                full names.
+        """
+        # count the number of images associated with each person
         name_to_images = defaultdict(list)
         for pair in pairs:
-            if not only_same or (only_same and pair.same_person):
+            if not only_y_same or (only_y_same and pair.same_person):
                 name_to_images[pair.image1.person].append(pair.image1)
                 name_to_images[pair.image2.person].append(pair.image2)
         
@@ -376,25 +420,30 @@ def plot_dataset_skew(pairs_test, pairs_val, pairs_train, only_same=True, show_p
         names_with_counts = names_with_counts[0:n_highest]
         only_counts = np.array([count for name, count in names_with_counts])
         
+        # estimate the positions of the pairs and the names of the person
+        # of each bar
         bars_positions = np.arange(len(names_with_counts))
         bars_names = [name for name, count in names_with_counts]
+        # we'll abbreviate names to their capital letters below the x axis
         bars_names_short = [re.sub(r"[^A-Z]", "", name) for name, count in names_with_counts]
         bars_values = only_counts
         
-        bars_test = ax.bar(bars_positions, bars_values, bars_width, color=color)
+        # draw the bars
+        ax.bar(bars_positions, bars_values, bars_width, color=color)
+        
+        # draw labels for x and y axis, the subplot title and the person names
+        # below the x axis
         ax.set_ylabel("Count of images")
         ax.set_xlabel("Person name")
-        if first:
-            ax.set_title("Person-Count relation in dataset '%s'\n"
-                        "A higher bar means that more images of that "
-                        "person appear in this dataset\n"
-                        "(only y value=%s, only highest %d persons)" % (dataset_name, str(only_y_value), n_highest))
-        else:
-            ax.set_title("Dataset '%s'" % (dataset_name,))
+        ax.set_title("Dataset '%s'" % (dataset_name,))
         
         ax.set_xticks(bars_positions + bars_width)
         ax.set_xticklabels(tuple(bars_names_short), rotation=90, size="x-small")
         
+        # ----
+        # create the legend at top right of each chart
+        # The legend translates abbreviated names (below x axis) to full names,
+        # e.g. "AS = Arnold Schwarzenegger".
         name_translation = zip(bars_names_short, bars_names)
         text_arr1 = [short + "=" + full for (short, full) in name_translation][0:n_highest_legend]
         text_arr2 = []
@@ -416,10 +465,11 @@ def plot_dataset_skew(pairs_test, pairs_val, pairs_train, only_same=True, show_p
             textstr += " (median=%.1f, mean=%.1f, std=%.2f)" % (0, 0, 0)
         
         ax.text(0.3, 0.96, textstr, transform=ax.transAxes, fontsize=8, verticalalignment="top", bbox=dict(alpha=0.5))
+        # ----
     
-    plot_one_chart(ax1, fps_test, "test", first=True)
-    plot_one_chart(ax2, fps_val, "validation")
-    plot_one_chart(ax3, fps_train, "train")
+    plot_one_chart(ax1, pairs_train, "Train (%d samples)" % (len(pairs_test)))
+    plot_one_chart(ax2, pairs_val, "Validation (%d samples)" % (len(pairs_val)))
+    plot_one_chart(ax3, pairs_test, "Test (%d samples)" % (len(pairs_test)))
     
     if save_to_filepath:
         fig.savefig(save_to_filepath)
