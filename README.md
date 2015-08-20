@@ -43,6 +43,24 @@ python test.py example_experiment --images="/path/to/lfwcrop_grey/faces"
 
 The neural network has the following architecture, layer by layer:
 
+| Layer type | Configuration | Notes |
+--------------------------------------
+| Input | | Images of shape (1, 32, 64), where 1 is the only channel (greyscale), 32 is the image height and 64 is the width (2 images of width 32, concatenated next to each other). |
+| Conv2D | 32 channels, 3x3, full | full border mode adds +2 pixels to image width and height |
+| Conv2D | 32 channels, 3x3, valid| valid border mode removes 2 pixels from image width and height |
+| MaxPooling2D | 2x2 | |
+| Conv2D | 64 channels, 3x3, valid | |
+| Conv2D | 64 channels, 3x3, valid | |
+| Dropout | 0.5 | |
+| Reshape | to (64\*4, 12\*28 / 4) | from shape (64, 12, 28); which roughly converts every pair of images into 4 slices (hairline, eyeline, noseline, mouthline) |
+| BatchNormalization | | Output shape is (#slices, 64) |
+| GRU | 64 internal neurons, return sequences | |
+| Flatten | | Creates 1D-Vector of size (64\*4) \* 64 |
+| BatchNormalization | | |
+| Dropout | 0.5 | |
+| Dense | from (64\*4)\*64 to 1 neuron, L2=0.000001 | |
+-------------------------------------------------------
+
 1. Input: Images of shape (1, 32, 64), where 1 is the only channel (greyscale), 32 is the image height and 64 is the width (2 images of width 32, concatenated next to each other).
 2. Convolution 2D, 32 channels, 3x3 (full border mode, i.e. +2 pixels width and height)
 3. Convolution 2D, 32 channels, 3x3 (valid border mode, i.e. -2 pixels width and height)
@@ -58,10 +76,10 @@ The neural network has the following architecture, layer by layer:
 13. Dropout (0.5 by default)
 14. Dense / Fully connected layer from 64\*4\*64 neurons to 1 neuron
 
-Training was done with the *Adagrad* optimizer.
+**Adagrad** was used as the optimizer.
 
-All activations are *Leaky ReLUs* with alpha 0.33, except for inner activations of the GRU (sigmoid and hard sigmoid, Keras default configuration) and the last dense layer (sigmoid).
-An weak L2 norm of 0.000001 is applied to the last dense layer, just to prevent weights from going crazy.
+All activations are **Leaky ReLUs** with alpha 0.33, except for inner activations of the GRU (sigmoid and hard sigmoid, Keras default configuration) and the last dense layer (sigmoid).
+A weak L2 norm of 0.000001 is applied to the last dense layer, just to prevent weights from going crazy.
 
 
 # Results
@@ -70,24 +88,43 @@ An weak L2 norm of 0.000001 is applied to the last dense layer, just to prevent 
 
 The graph shows the training progress of the included example model over ~1,900 epochs. The red lines show the training set values (loss function and accuracy), while the blue lines show the validation set values. Light/Transparent lines are the real values, thicker/opaque lines are averages over the last 20 epochs. The sudden decrease of the training set results at ~1,500 came from an increase of the augmentation strength (multiplier increased from 1.2 to 1.5).
 
-The results of the included example model are:
-* *Training set*: Accuracy 94.14%, Recall 0.9474, Precision 0.9362, F1 0.9417 (Support: 20,000 samples)
+**Training set** (20k pairs)
+
+* Accuracy 94.14%
+* Recall 0.9474
+* Precision 0.9362
+* F1 0.9417
+
                | same   | different  | TRUTH
-    ---------------------------------|------
+    --------------------|------------|------
          same  | 9474   | 646        |
     different  | 526    | 9354       |
     -----------|--------|------------|
     PREDICTION |
-* *Validation set*: Accuracy 89.06%, Recall 0.9141, Precision 0.8731, F1 0.8931 (Support: 256)
+
+**Validation set** (256 pairs)
+
+* Accuracy 89.06%
+* Recall 0.9141
+* Precision 0.8731
+* F1 0.8931
+
                | same   | different  | TRUTH
-    ---------------------------------|------
+    --------------------|------------|------
          same  | 117    | 17         |
     different  | 11     | 111        |
     -----------|--------|------------|
     PREDICTION |
-* *Test set*: Accuracy 88.48%, Recall 0.9062, Precision 0.8689, F1 0.8872 (Support: 512)
+
+**Test set** (512 pairs)
+
+* Accuracy 88.48%
+* Recall 0.9062
+* Precision 0.8689
+* F1 0.8872
+
                | same   | different  | TRUTH
-    ---------------------------------|------
+    --------------------|------------|------
          same  | 232    | 35         |
     different  | 24     | 221        |
     -----------|--------|------------|
@@ -95,12 +132,12 @@ The results of the included example model are:
 
 The results of the validation set and test set are averaged over 50 augmented runs (so each image pair was augmented 50 times, 50 predictions were made, resulting in 50 probabilities between 0.0 and 1.0 and these values were averaged). Using 50 runs with augmentation instead of 1 run without resulted in very slightly improved results (might be down to luck).
 
-Examples of *false positives* in the validation dataset (image pair contained different persons, but network thought they were the same person):
+Examples of **false positives** in the *validation set* (image pair contained different persons, but network thought they were the same person):
 
 ![False positives on the validation dataset](images/val_false_positives_cropped.png?raw=true "False positives on the validation dataset")
 
 
-Examples of *false negatives* in the validation dataset (image pair contained the same person, but network thought the images showed different persons):
+Examples of **false negatives** in the *validation set* (image pair contained the same person, but network thought the images showed different persons):
 
 ![False negatives on the validation dataset](images/val_false_negatives_cropped.png?raw=true "False negatives on the validation dataset")
 
@@ -167,7 +204,7 @@ Sigmoid:
 The chosen network architecture performed best among many, many other tested architectures (though I'm hardware constrained, so I usually have to stop runs earlier than I would like to). The GRU layer was chosen, because it seemed to perform just as good as dense layers and maxout layers, but required significantly less disk space to save. I also had the impression that it was less prone to overfitting and in theory should be better at counting how many slices of images seem to match (same person) than dense layers.
 
 Other architectures and techniques tested (recalled from memory):
-* Sigmoid, Tanh, ReLUs, PReLUs, LeakyReLUs(0.15), LeakyReLUs(0.66). They all all performed significantly worse (including ReLUs), except for LeakyReLUs(0.15), which only seemed to be slightly worse than LeakyReLUs(0.33). PReLUs were a good 5% worse. The order seemed to be roughly: LeakyReLUs(0.33) > LeakyReLUs(0.15) > PReLUs > ReLUs > tanh > sigmoid > LeakyReLUs(0.66).
+* (As seen in above chapter:) Sigmoid, Tanh, ReLUs, PReLUs, LeakyReLUs(0.15), LeakyReLUs(0.66). They all all performed significantly worse (including ReLUs), except for LeakyReLUs(0.15), which only seemed to be slightly worse than LeakyReLUs(0.33). PReLUs were a good 5% worse. The order seemed to be roughly: LeakyReLUs(0.33) > LeakyReLUs(0.15) > PReLUs > ReLUs > tanh > sigmoid > LeakyReLUs(0.66).
 * Larger images of size 64x64 instead of 32x32. Seemed to only increase overfitting and training time per epoch.
 * Using not the original images, but instead images after a canny edge detector was applied (i.e. black and white images, where edges are white). Performed significantly worse.
 * Feeding the images in shape (2, 32, 32) into the network (one image with 2 channels, where each channel is one of the two images) instead of (1, 32, 64). Performed significantly worse (5-10% val. accuracy lost).
