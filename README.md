@@ -16,13 +16,13 @@ This convolutional neural network estimates whether two images of human faces sh
 Install all requirements, download the LFWcrop_grey dataset, extract it and clone the repository.
 Then you can train the network using
 ```
-python train.py name_of_experiment --images="/path/to/lfwcrop_grey/faces" --dropout=0.5 --argmul=1.5
+python train.py name_of_experiment --images="/path/to/lfwcrop_grey/faces" --dropout=0.5 --augmul=1.5
 ```
 where 
 * `name_of_experiment` is a short identifier for your experiment (used during saving of files), e. g. "experiment_15_low_dropout".
 * `/path/to/lfwcrop_grey/faces` is the path to *the /faces subdirectory* of your LFWcrop_grey dataset.
 * `dropout=0.5` sets the dropout rate of parts of the network to 0.5 (50%). (Not all layers have dropout.)
-* `argmul=1.5` sets the image augmentation's strength multiplier (e.g. rotation and shifting of images) to a factor of 1.5, where 1.0 represents medium augmentation and 2.0 is rather strong augmentation (e. g. lots of rotation).
+* `augmul=1.5` sets the image augmentation's strength multiplier (e.g. rotation and shifting of images) to a factor of 1.5, where 1.0 represents medium augmentation and 2.0 is rather strong augmentation (e.g. lots of rotation).
 
 Training will take a few hours for good performance and around a day to reach peak performance (depending on hardware and RNG luck, around 1000 epochs are needed).
 
@@ -42,6 +42,7 @@ python test.py example_experiment --images="/path/to/lfwcrop_grey/faces"
 # Architecture
 
 The neural network has the following architecture, layer by layer:
+
 1. Input: Images of shape (1, 32, 64), where 1 is the only channel (greyscale), 32 is the image height and 64 is the width (2 images of width 32, concatenated next to each other).
 2. Convolution 2D, 32 channels, 3x3 (full border mode, i.e. +2 pixels width and height)
 3. Convolution 2D, 32 channels, 3x3 (valid border mode, i.e. -2 pixels width and height)
@@ -84,7 +85,7 @@ Other architectures and techniques tested (recalled from memory):
 
 # Results
 
-![Example experiment training progress](images/example_experiment.png?raw=true "Example experiment training progress")
+![Example experiment training progress](experiments/plots/example_experiment.png?raw=true "Example experiment training progress")
 
 The graph shows the training progress of the included example model over ~1,900 epochs. The red lines show the training set values (loss function and accuracy), while the blue lines show the validation set values. Light/Transparent lines are the real values, thicker/opaque lines are averages over the last 20 epochs. The sudden decrease of the training set results at ~1,500 came from an increase of the augmentation strength (multiplier increased from 1.2 to 1.5).
 
@@ -113,12 +114,12 @@ The results of the included example model are:
 
 The results of the validation set and test set are averaged over 50 augmented runs (so each image pair was augmented 50 times, 50 predictions were made, resulting in 50 probabilities between 0.0 and 1.0 and these values were averaged). Using 50 runs with augmentation instead of 1 run without resulted in very slightly improved results (might be down to luck).
 
-Examples of false positives in the validation dataset (image pair contained different persons, but network thought they were the same person):
+Examples of *false positives* in the validation dataset (image pair contained different persons, but network thought they were the same person):
 
 ![False positives on the validation dataset](images/val_false_positives_cropped.png?raw=true "False positives on the validation dataset")
 
 
-Examples of false negatives in the validation dataset (image pair contained the same person, but network thought the images showed different persons):
+Examples of *false negatives* in the validation dataset (image pair contained the same person, but network thought the images showed different persons):
 
 ![False negatives on the validation dataset](images/val_false_negatives_cropped.png?raw=true "False negatives on the validation dataset")
 
@@ -133,6 +134,7 @@ The used dataset may seem quite big at first glance as it contains 13,233 images
 * 35 persons have 26-75 images.
 * 4 persons have 76-200 images.
 * 2 persons have >=201 images.
+
 In order to generate pairs of images showing the same person you need a person with at least two images (unless you allow pairs of images where both images are identical). So only 1,680 persons can possibly be used for such a pair. Furthermore, any image already added to a dataset (training, validation, test) *must not appear in another dataset*. If you don't stick to that rule, your results will be completely skewed as the net can just start to memorize the image->person mapping and you are essentially testing whether your network is a good memorizer, but not whether it has learned a generalizing rule to compare faces.
 
 Because of these problems, the validation set is picked first, before the training set, so that it is less skewed (towards few people) than the training set. Additionally, a stratified sampling approach is used: First, a name is picked among all person names. Then, among all images of that person one image is picked. That is done two times for each pair. By doing this, early picked pairs should be less skewed (towards few people) than by just randomly picking images among all images (of all people). At the end, the validation set should be rather balanced, giving a better measurement of the true performance of the network. To decrease the resulting skew of the training set, the validation set size is kept small, at only 256 pairs, while the training set size is 20,000 pairs. All images that appear in the validation set are excluded from the picking process for the training set.
@@ -158,25 +160,25 @@ Notice how the counts of images per person are very uniform in the validation se
 The following images show training runs *on 8,000 examples each* of an older model with different activation functions. LeakyReLU(0.33) performed best. (Red thin line: training set values, Red thick line: average over training set values (last 20 epochs), Blue thin line: validation set values, Blue thick line: average over validation set values (last 20 epochs)).
 
 LeakyReLU(0.66):
-![Model trained on 8k examples with LeakyReLUs at 0.66](images/m23r8k_lrelu066_cropped.png?raw=true "Model trained on 8k examples with LeakyReLUs at 0.66")
+![Model trained on 8k examples with LeakyReLUs at 0.66](images/m23r8k_lrelu066_cropped.jpg?raw=true "Model trained on 8k examples with LeakyReLUs at 0.66")
 
 LeakyReLU(0.33):
-![Model trained on 8k examples with LeakyReLUs at 0.33](images/m23r8k_lrelu_cropped.png?raw=true "Model trained on 8k examples with LeakyReLUs at 0.33")
+![Model trained on 8k examples with LeakyReLUs at 0.33](images/m23r8k_lrelu_cropped.jpg?raw=true "Model trained on 8k examples with LeakyReLUs at 0.33")
 
 LeakyReLU(0.15):
-![Model trained on 8k examples with LeakyReLUs at 0.15](images/m23r8k_lrelu015_cropped.png?raw=true "Model trained on 8k examples with LeakyReLUs at 0.15")
+![Model trained on 8k examples with LeakyReLUs at 0.15](images/m23r8k_lrelu015_cropped.jpg?raw=true "Model trained on 8k examples with LeakyReLUs at 0.15")
 
 PReLU:
-![Model trained on 8k examples with PReLUs](images/m23r8k_prelu_cropped.png?raw=true "Model trained on 8k examples with PReLUs")
+![Model trained on 8k examples with PReLUs](images/m23r8k_prelu_cropped.jpg?raw=true "Model trained on 8k examples with PReLUs")
 
 ReLU:
-![Model trained on 8k examples with ReLU activation](images/m23r8k_relu_cropped.png?raw=true "Model trained on 8k examples with ReLU activation")
+![Model trained on 8k examples with ReLU activation](images/m23r8k_relu_cropped.jpg?raw=true "Model trained on 8k examples with ReLU activation")
 
 Tanh:
-![Model trained on 8k examples with tanh activation](images/m23r8k_tanh_cropped.png?raw=true "Model trained on 8k examples with tanh activation")
+![Model trained on 8k examples with tanh activation](images/m23r8k_tanh_cropped.jpg?raw=true "Model trained on 8k examples with tanh activation")
 
 Sigmoid:
-![Model trained on 8k examples with sigmoid activation](images/m23r8k_sigmoid_cropped.png?raw=true "Model trained on 8k examples with sigmoid activation")
+![Model trained on 8k examples with sigmoid activation](images/m23r8k_sigmoid_cropped.jpg?raw=true "Model trained on 8k examples with sigmoid activation")
 
 
 # Notes
