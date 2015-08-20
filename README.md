@@ -124,7 +124,7 @@ False positives here are image pairs that show different persons, but were class
 
 ## Examples of false negatives (validation set)
 
-False negatives here are image pairs that show the same person, but were classified by the network as showing different persons.
+False negatives here are image pairs that show the same person, but were classified by the network as showing different persons. The network seems to have problems with sunglasses.
 
 ![False negatives on the validation dataset](images/val_false_negatives_cropped.png?raw=true "False negatives on the validation dataset")
 
