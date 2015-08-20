@@ -43,23 +43,22 @@ python test.py example_experiment --images="/path/to/lfwcrop_grey/faces"
 
 The neural network has the following architecture, layer by layer:
 
-| Layer type | Configuration | Notes |
---------------------------------------
-| Input | | Images of shape (1, 32, 64), where 1 is the only channel (greyscale), 32 is the image height and 64 is the width (2 images of width 32, concatenated next to each other). |
-| Conv2D | 32 channels, 3x3, full | full border mode adds +2 pixels to image width and height |
-| Conv2D | 32 channels, 3x3, valid| valid border mode removes 2 pixels from image width and height |
-| MaxPooling2D | 2x2 | |
-| Conv2D | 64 channels, 3x3, valid | |
-| Conv2D | 64 channels, 3x3, valid | |
-| Dropout | 0.5 | |
-| Reshape | to (64\*4, 12\*28 / 4) | from shape (64, 12, 28); which roughly converts every pair of images into 4 slices (hairline, eyeline, noseline, mouthline) |
-| BatchNormalization | | Output shape is (#slices, 64) |
-| GRU | 64 internal neurons, return sequences | |
-| Flatten | | Creates 1D-Vector of size (64\*4) \* 64 |
-| BatchNormalization | | |
-| Dropout | 0.5 | |
-| Dense | from (64\*4)\*64 to 1 neuron, L2=0.000001 | |
--------------------------------------------------------
+| Layer type | Configuration           | Notes |
+| ---------- | ----------------------- | ----- |
+| Input      |                         | Images of shape (1, 32, 64), where 1 is the only channel (greyscale), 32 is the image height and 64 is the width (2 images of width 32, concatenated next to each other). |
+| Conv2D     | 32 channels, 3x3, full  | full border mode adds +2 pixels to image width and height |
+| Conv2D     | 32 channels, 3x3, valid | valid border mode removes 2 pixels from image width and height |
+| MaxPooling2D | 2x2                   | |
+| Conv2D     | 64 channels, 3x3, valid | |
+| Conv2D     | 64 channels, 3x3, valid | |
+| Dropout    | 0.5                     | |
+| Reshape    | to (64\*4, 12\*28 / 4)  | from shape (64, 12, 28); which roughly converts every pair of images into 4 slices (hairline, eyeline, noseline, mouthline) |
+| BatchNormalization |                 | Output shape is (#slices, 64) |
+| GRU        | 64 internal neurons, return sequences | |
+| Flatten    | | Creates 1D-Vector of size (64\*4) \* 64 |
+| BatchNormalization |                 | |
+| Dropout    | 0.5                     | |
+| Dense      | from (64\*4)\*64 to 1 neuron, L2=0.000001 | |
 
 1. Input: Images of shape (1, 32, 64), where 1 is the only channel (greyscale), 32 is the image height and 64 is the width (2 images of width 32, concatenated next to each other).
 2. Convolution 2D, 32 channels, 3x3 (full border mode, i.e. +2 pixels width and height)
