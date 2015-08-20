@@ -53,32 +53,16 @@ The neural network has the following architecture, layer by layer:
 | Conv2D     | 64 channels, 3x3, valid | |
 | Dropout    | 0.5                     | |
 | Reshape    | to (64\*4, 12\*28 / 4)  | from shape (64, 12, 28); which roughly converts every pair of images into 4 slices (hairline, eyeline, noseline, mouthline) |
-| BatchNormalization |                 | Output shape is (#slices, 64) |
-| GRU        | 64 internal neurons, return sequences | |
+| BatchNormalization |                 | |
+| GRU        | 64 internal neurons, return sequences | Output shape is (#slices, 64) |
 | Flatten    | | Creates 1D-Vector of size (64\*4) \* 64 |
 | BatchNormalization |                 | |
 | Dropout    | 0.5                     | |
-| Dense      | from (64\*4)\*64 to 1 neuron, L2=0.000001 | |
-
-1. Input: Images of shape (1, 32, 64), where 1 is the only channel (greyscale), 32 is the image height and 64 is the width (2 images of width 32, concatenated next to each other).
-2. Convolution 2D, 32 channels, 3x3 (full border mode, i.e. +2 pixels width and height)
-3. Convolution 2D, 32 channels, 3x3 (valid border mode, i.e. -2 pixels width and height)
-4. Max pooling 2D, 2x2
-5. Convolution 2D, 64 channels, 3x3 (valid border mode)
-6. Convolution 2D, 64 channels, 3x3 (valid border mode)
-7. Dropout (0.5 by default)
-8. Reshape from shape (64, 12, 28) to (64\*4, 12\*28 / 4), which roughly converts every pair of images into 4 slices (hairline, eyeline, noseline, mouthline).
-9. BatchNormalization
-10. GRU with 64 neurons per timestep and 64\*4 timesteps (slices). Each timestep's results are fed to the next layer, creating (64\*4) \* 64 outputs.
-11. Flatten / Reshape to shape (64\*4\*64,), i.e. one-dimensional vector
-12. BatchNormalization
-13. Dropout (0.5 by default)
-14. Dense / Fully connected layer from 64\*4\*64 neurons to 1 neuron
+| Dense      | from (64\*4)\*64 to 1 neuron, L2=0.000001 | Weak L2 only to prevent weights from going crazy |
 
 **Adagrad** was used as the optimizer.
 
 All activations are **Leaky ReLUs** with alpha 0.33, except for inner activations of the GRU (sigmoid and hard sigmoid, Keras default configuration) and the last dense layer (sigmoid).
-A weak L2 norm of 0.000001 is applied to the last dense layer, just to prevent weights from going crazy.
 
 
 # Results
@@ -95,10 +79,10 @@ The graph shows the training progress of the included example model over ~1,900 
 * F1 0.9417
 
                | same   | different  | TRUTH
-    --------------------|------------|------
+    ---------- | ------ | ---------- | -----
          same  | 9474   | 646        |
     different  | 526    | 9354       |
-    -----------|--------|------------|
+    ---------- | ------ | ---------- |
     PREDICTION |
 
 **Validation set** (256 pairs)
@@ -109,10 +93,10 @@ The graph shows the training progress of the included example model over ~1,900 
 * F1 0.8931
 
                | same   | different  | TRUTH
-    --------------------|------------|------
+    ---------- | ------ | ---------- | -----
          same  | 117    | 17         |
     different  | 11     | 111        |
-    -----------|--------|------------|
+    ---------- | ------ | ---------- |
     PREDICTION |
 
 **Test set** (512 pairs)
@@ -123,10 +107,10 @@ The graph shows the training progress of the included example model over ~1,900 
 * F1 0.8872
 
                | same   | different  | TRUTH
-    --------------------|------------|------
+    ---------- | ------ | ---------- | -----
          same  | 232    | 35         |
     different  | 24     | 221        |
-    -----------|--------|------------|
+    ---------- | ------ | ---------- |
     PREDICTION |
 
 The results of the validation set and test set are averaged over 50 augmented runs (so each image pair was augmented 50 times, 50 predictions were made, resulting in 50 probabilities between 0.0 and 1.0 and these values were averaged). Using 50 runs with augmentation instead of 1 run without resulted in very slightly improved results (might be down to luck).
