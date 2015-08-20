@@ -78,12 +78,12 @@ The graph shows the training progress of the included example model over ~1,900 
 * Precision 0.9362
 * F1 0.9417
 
-               | same   | different  | TRUTH
-    ---------- | ------ | ---------- | -----
-         same  | 9474   | 646        |
-    different  | 526    | 9354       |
-    ---------- | ------ | ---------- |
-    PREDICTION |
+           | same   | different  | <span style="font-weight:normal">TRUTH</span>
+---------- | ------ | ---------- | -----
+     same  | 9474   | 646        |
+different  | 526    | 9354       |
+---------- | ------ | ---------- |
+PREDICTION |
 
 **Validation set** (256 pairs)
 
@@ -92,12 +92,12 @@ The graph shows the training progress of the included example model over ~1,900 
 * Precision 0.8731
 * F1 0.8931
 
-               | same   | different  | TRUTH
-    ---------- | ------ | ---------- | -----
-         same  | 117    | 17         |
-    different  | 11     | 111        |
-    ---------- | ------ | ---------- |
-    PREDICTION |
+           | same   | different  | <span style="font-weight:normal">TRUTH</span>
+---------- | ------ | ---------- | -----
+     same  | 117    | 17         |
+different  | 11     | 111        |
+---------- | ------ | ---------- |
+PREDICTION |
 
 **Test set** (512 pairs)
 
@@ -106,12 +106,12 @@ The graph shows the training progress of the included example model over ~1,900 
 * Precision 0.8689
 * F1 0.8872
 
-               | same   | different  | TRUTH
-    ---------- | ------ | ---------- | -----
-         same  | 232    | 35         |
-    different  | 24     | 221        |
-    ---------- | ------ | ---------- |
-    PREDICTION |
+           | same   | different  | <span style="font-weight:normal">TRUTH</span>
+---------- | ------ | ---------- | -----
+     same  | 232    | 35         |
+different  | 24     | 221        |
+---------- | ------ | ---------- |
+PREDICTION |
 
 The results of the validation set and test set are averaged over 50 augmented runs (so each image pair was augmented 50 times, 50 predictions were made, resulting in 50 probabilities between 0.0 and 1.0 and these values were averaged). Using 50 runs with augmentation instead of 1 run without resulted in very slightly improved results (might be down to luck).
 
