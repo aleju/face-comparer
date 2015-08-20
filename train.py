@@ -4,11 +4,11 @@ Traings a neural net to compare pairs of faces with each other.
 
 Call this file in the following way:
 
-    python train.py name_of_experiment
+    python train.py name_of_experiment --images="/path/to/lfwcrop_grey/faces"
 
 or more complex:
 
-    python train.py name_of_experiment --load="old_experiment_name" --dropout=0.0 --augmul=1.0
+    python train.py name_of_experiment --images="/path/to/lfwcrop_grey/faces" --load="old_experiment_name" --dropout=0.0 --augmul=1.0
 
 where
     name_of_experiment:
@@ -48,7 +48,7 @@ from keras.utils import generic_utils
 from libs.ImageAugmenter import ImageAugmenter
 from libs.laplotter import LossAccPlotter
 from utils.saveload import load_previous_model, save_model_weights, save_optimizer_state, load_weights, load_optimizer_state
-from utils.datasets import get_image_pairs, image_pairs_to_xy
+from utils.datasets import get_image_pairs, image_pairs_to_xy, plot_dataset_skew
 from utils.History import History
 
 SEED = 42
@@ -58,7 +58,7 @@ EPOCHS = 1000 * 1000
 BATCH_SIZE = 64
 SAVE_DIR = os.path.dirname(os.path.realpath(__file__)) + "/experiments"
 SAVE_PLOT_FILEPATH = "%s/plots/{identifier}.png" % (SAVE_DIR)
-SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_distribution.png" % (SAVE_DIR)
+SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_dataset_skew.png" % (SAVE_DIR)
 SAVE_CSV_FILEPATH = "%s/csv/{identifier}.csv" % (SAVE_DIR)
 SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
 SAVE_OPTIMIZER_STATE_DIR = "%s/optstate" % (SAVE_DIR)
@@ -131,11 +131,11 @@ def main():
     print("Plotting dataset skew. (Only for pairs of images showing the same person.)")
     print("More unequal bars mean that the dataset is more skewed (towards very few people).")
     print("Close the chart to continue.")
-    plot_person_img_distribution(
+    plot_dataset_skew(
         pairs_train, pairs_val, [],
         only_y_same=True,
         show_plot_windows=SHOW_PLOT_WINDOWS,
-        save_to_filepath=SAVE_DISTRIBUTION_PLOT_FILEPATH.format(identifier=identifier)
+        save_to_filepath=SAVE_DISTRIBUTION_PLOT_FILEPATH.format(identifier=args.identifier)
     )
 
     # initialize the network
