@@ -355,3 +355,74 @@ def image_pairs_to_xy(image_pairs):
         y[i] = Y_SAME if pair.same_person else Y_DIFFERENT
     
     return X, y
+
+def plot_dataset_skew(pairs_test, pairs_val, pairs_train, only_same=True, show_plot_windows=True, save_to_filepath=None):
+    #nrows = sum([1 for ds in [pairs_test, pairs_val, pairs_train] if len(ds) > 0])
+    nrows = 3
+    fig, (ax1, ax2, ax3) = plt.subplots(nrows=nrows, figsize=(20, 12))
+    plt.subplots_adjust(hspace=0.5)
+    color = "b"
+    bars_width = 0.2
+    
+    def plot_one_chart(ax, pairs, dataset_name, n_highest=250, n_highest_legend=15, first=False):
+        name_to_images = defaultdict(list)
+        for pair in pairs:
+            if not only_same or (only_same and pair.same_person):
+                name_to_images[pair.image1.person].append(pair.image1)
+                name_to_images[pair.image2.person].append(pair.image2)
+        
+        names_with_counts = [(name, len(images)) for name, images in name_to_images.iteritems()]
+        names_with_counts.sort(key=lambda name_with_count: name_with_count[1], reverse=True)
+        names_with_counts = names_with_counts[0:n_highest]
+        only_counts = np.array([count for name, count in names_with_counts])
+        
+        bars_positions = np.arange(len(names_with_counts))
+        bars_names = [name for name, count in names_with_counts]
+        bars_names_short = [re.sub(r"[^A-Z]", "", name) for name, count in names_with_counts]
+        bars_values = only_counts
+        
+        bars_test = ax.bar(bars_positions, bars_values, bars_width, color=color)
+        ax.set_ylabel("Count of images")
+        ax.set_xlabel("Person name")
+        if first:
+            ax.set_title("Person-Count relation in dataset '%s'\n"
+                        "A higher bar means that more images of that "
+                        "person appear in this dataset\n"
+                        "(only y value=%s, only highest %d persons)" % (dataset_name, str(only_y_value), n_highest))
+        else:
+            ax.set_title("Dataset '%s'" % (dataset_name,))
+        
+        ax.set_xticks(bars_positions + bars_width)
+        ax.set_xticklabels(tuple(bars_names_short), rotation=90, size="x-small")
+        
+        name_translation = zip(bars_names_short, bars_names)
+        text_arr1 = [short + "=" + full for (short, full) in name_translation][0:n_highest_legend]
+        text_arr2 = []
+        linebreak_every_n = 7
+        for i, item in enumerate(text_arr1):
+            # add linebreak after 10 names, but not if the name is the
+            # last one shown
+            if (i+1) % linebreak_every_n == 0 and (i+1) < len(text_arr1):
+                text_arr2.append(item + "\n")
+            else:
+                text_arr2.append(item)
+        textstr = " ".join(text_arr2)
+        textstr += " (+%d others shown of total %d persons)" % (len(bars_names) - n_highest_legend, len(name_to_images))
+        
+        mean = np.mean(only_counts)
+        if len(images) > 0:
+            textstr += " (median=%.1f, mean=%.1f, std=%.2f)" % (np.median(only_counts), np.mean(only_counts), np.std(only_counts))
+        else:
+            textstr += " (median=%.1f, mean=%.1f, std=%.2f)" % (0, 0, 0)
+        
+        ax.text(0.3, 0.96, textstr, transform=ax.transAxes, fontsize=8, verticalalignment="top", bbox=dict(alpha=0.5))
+    
+    plot_one_chart(ax1, fps_test, "test", first=True)
+    plot_one_chart(ax2, fps_val, "validation")
+    plot_one_chart(ax3, fps_train, "train")
+    
+    if save_to_filepath:
+        fig.savefig(save_to_filepath)
+        
+    if show_plot_windows:
+        plt.show()
