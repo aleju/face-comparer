@@ -153,7 +153,37 @@ The following plot shows roughly the count of images per person and dataset (onl
 
 Notice how the counts of images per person are very uniform in the validation set as it was picked first.
 
+# Comparison of activation functions
+
+The following images show training runs *on 8,000 examples each* of an older model with different activation functions. LeakyReLU(0.33) performed best. (Red thin line: training set values, Red thick line: average over training set values (last 20 epochs), Blue thin line: validation set values, Blue thick line: average over validation set values (last 20 epochs)).
+
+LeakyReLU(0.66):
+![Model trained on 8k examples with LeakyReLUs at 0.66](images/m23r8k_lrelu066_cropped.png?raw=true "Model trained on 8k examples with LeakyReLUs at 0.66")
+
+LeakyReLU(0.33):
+![Model trained on 8k examples with LeakyReLUs at 0.33](images/m23r8k_lrelu_cropped.png?raw=true "Model trained on 8k examples with LeakyReLUs at 0.33")
+
+LeakyReLU(0.15):
+![Model trained on 8k examples with LeakyReLUs at 0.15](images/m23r8k_lrelu015_cropped.png?raw=true "Model trained on 8k examples with LeakyReLUs at 0.15")
+
+PReLU:
+![Model trained on 8k examples with PReLUs](images/m23r8k_prelu_cropped.png?raw=true "Model trained on 8k examples with PReLUs")
+
+ReLU:
+![Model trained on 8k examples with ReLU activation](images/m23r8k_relu_cropped.png?raw=true "Model trained on 8k examples with ReLU activation")
+
+Tanh:
+![Model trained on 8k examples with tanh activation](images/m23r8k_tanh_cropped.png?raw=true "Model trained on 8k examples with tanh activation")
+
+Sigmoid:
+![Model trained on 8k examples with sigmoid activation](images/m23r8k_sigmoid_cropped.png?raw=true "Model trained on 8k examples with sigmoid activation")
+
+
 # Notes
 
 * There is currently no function to compare images directly via their filepaths. Take a look at the test.py file to see roughly how that would be done.
 * The current highscore on this task is reported by Facebook. They achieved around 93% accuracy. The main differences are: They used frontalization on the images, special convolutional layers with local parameters and trained first on classification (image to person name). They probably also had much more training images.
+
+# License
+
+[Creative Commons 4.0 Attribution-NonCommercial-ShareAlike (CC BY-NC-SA)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
