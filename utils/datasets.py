@@ -33,10 +33,10 @@ class ImageFile(object):
         self.filename = name
         self.person = filepath_to_person_name(self.filepath)
         self.number = filepath_to_number(self.filepath)
-    
+
     def get_content(self):
         """Returns the content of the image (pixel values) as a numpy array.
-        
+
         Returns:
             Content of image as numpy array (dtype: uint8).
             Should have shape (height, width) as the images are grayscaled."""
@@ -85,7 +85,7 @@ class ImagePair(object):
         """
         return np.array([self.image1.get_content(), self.image2.get_content()], dtype=np.uint8)
 
-def filepath_to_person_name(fp):
+def filepath_to_person_name(filepath):
     """Extracts the name of a person from a filepath.
     Obviously only works with the file naming used in the LFW-GC dataset.
 
@@ -94,11 +94,11 @@ def filepath_to_person_name(fp):
     Returns:
         Name of the person.
     """
-    last_slash = fp.rfind("/")
+    last_slash = filepath.rfind("/")
     if last_slash is None:
-        return fp[0:fp.rfind("_")]
+        return filepath[0:filepath.rfind("_")]
     else:
-        return fp[last_slash+1:fp.rfind("_")]
+        return filepath[last_slash+1:filepath.rfind("_")]
 
 def filepath_to_number(filepath):
     """Extracts the number of the image from a filepath.
@@ -116,7 +116,7 @@ def filepath_to_number(filepath):
 
 def get_image_files(dataset_filepath, exclude_images=None):
     """Loads all images sorted by filenames and returns them as ImageFile Objects.
-    
+
     Args:
         dataset_filepath: Path to the 'faces/' subdirectory of the dataset (Labeled
             Faces in the Wild, grayscaled and cropped).
@@ -128,7 +128,8 @@ def get_image_files(dataset_filepath, exclude_images=None):
         except for the ones in exclude_images.
     """
     if not os.path.isdir(dataset_filepath):
-        raise Exception("Images filepath '%s' of the dataset seems to not exist or is not a directory." % (dataset_filepath,))
+        raise Exception("Images filepath '%s' of the dataset seems to not " \
+                        "exist or is not a directory." % (dataset_filepath,))
 
     images = []
     exclude_images = exclude_images if exclude_images is not None else set()
@@ -144,22 +145,24 @@ def get_image_files(dataset_filepath, exclude_images=None):
     images = sorted(images, key=lambda image: image.filename)
     return images
 
-def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_order=True, exclude_images=list(), seed=None, verbose=False):
+def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False,
+                    ignore_order=True, exclude_images=None, seed=None,
+                    verbose=False):
     """Creates a list of ImagePair objects from images in the dataset directory.
-    
+
     This is the main method intended to load training/validation/test datasets.
-    
+
     The images are all expected to come from the
         Labeled Faces in the Wild, grayscaled and cropped (sic!)
     dataset.
     Their names must be similar to:
         Adam_Scott_0002.pgm
         Kalpana_Chawla_0002.pgm
-    
+
     Note: This function may currently run endlessly if nb_max is set too higher
     (above maximum number of possible pairs of same or different persons, whichever
     is lower - that number however is pretty large).
-    
+
     Args:
         images_filepath: Path to the 'faces/' subdirectory of the dataset (Labeled
             Faces in the Wild, grayscaled and cropped).
@@ -187,42 +190,59 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
     if seed is not None:
         state = random.getstate() # used right before the return
         random.seed(seed)
-    
+
     # validate dataset directory
     if not os.path.isdir(dataset_filepath):
-        raise Exception("Images filepath '%s' of the dataset seems to not exist or is not a directory." % (dataset_filepath,))
-    
+        raise Exception("Images filepath '%s' of the dataset seems to not " \
+                        "exist or is not a directory." % (dataset_filepath,))
+
     # Build set of images to not use in image pairs (because they have
     # been used previously)
+    exclude_images = exclude_images if exclude_images is not None else []
     exclude_images = set([img_pair.image1 for img_pair in exclude_images]
                          + [img_pair.image2 for img_pair in exclude_images])
 
     # load metadata of all images as ImageFile objects (except for the excluded ones)
     images = get_image_files(dataset_filepath, exclude_images=exclude_images)
-    
+
     # build a mapping person=>images[]
     # this will make it easier to do stratified sampling of images
     images_by_person = defaultdict(list)
     for image in images:
         images_by_person[image.person].append(image)
-    
+
     nb_img = len(images)
     nb_people = len(images_by_person)
-    
+
+    # ----
     # Show some statistics about the dataset
     if verbose:
-        print("Found %d images in filepath, resulting in theoretically max k*(k-1)=%d ordered or (k over 2)=k(k-1)/2=%d unordered pairs." % (nb_img, nb_img*(nb_img-1), nb_img*(nb_img-1)/2))
+        def count_persons(start, end):
+            """Counts how many people have an amount of images in a given range.
+            Args:
+                start: Start of the range (including).
+                end: End of the range (excluding).
+            Returns:
+                Count of people with x images where start<=x<end."""
+            names = [name for name, images in images_by_person.iteritems() \
+                          if len(images) >= start and len(images) < end]
+            return len(names)
+
+        print("Found %d images in filepath, resulting in theoretically max " \
+              "k*(k-1)=%d ordered or (k over 2)=k(k-1)/2=%d unordered " \
+              "pairs." % (nb_img, nb_img*(nb_img-1), nb_img*(nb_img-1)/2))
         print("Found %d different persons" % (nb_people,))
         print("In total...")
-        print(" {:>7} persons have 1 image.".format(len([name for name, fps in images_by_person.iteritems() if len(fps) == 1])))
-        print(" {:>7} persons have 2 images.".format(len([name for name, fps in images_by_person.iteritems() if len(fps) == 2])))
-        print(" {:>7} persons have 3-5 images.".format(len([name for name, fps in images_by_person.iteritems() if len(fps) >= 3 and len(fps) <= 5])))
-        print(" {:>7} persons have 6-10 images.".format(len([name for name, fps in images_by_person.iteritems() if len(fps) > 5 and len(fps) <= 10])))
-        print(" {:>7} persons have 11-25 images.".format(len([name for name, fps in images_by_person.iteritems() if len(fps) > 10 and len(fps) <= 25])))
-        print(" {:>7} persons have 26-75 images.".format(len([name for name, fps in images_by_person.iteritems() if len(fps) > 25 and len(fps) <= 75])))
-        print(" {:>7} persons have 76-200 images.".format(len([name for name, fps in images_by_person.iteritems() if len(fps) > 75 and len(fps) <= 200])))
-        print(" {:>7} persons have >=201 images.".format(len([name for name, fps in images_by_person.iteritems() if len(fps) > 200])))
-    
+        print(" {:>7} persons have 1 image.".format(count_persons(1, 2)))
+        print(" {:>7} persons have 2 images.".format(count_persons(2, 3)))
+        print(" {:>7} persons have 3-5 images.".format(count_persons(3, 6)))
+        print(" {:>7} persons have 6-10 images.".format(count_persons(6, 11)))
+        print(" {:>7} persons have 11-25 images.".format(count_persons(11, 26)))
+        print(" {:>7} persons have 26-75 images.".format(count_persons(26, 76)))
+        print(" {:>7} persons have 76-200 images.".format(count_persons(76, 201)))
+        print(" {:>7} persons have >=201 images.".format(count_persons(201, 9999999)))
+    # ----
+
     # Create lists
     #  a) of all names of people appearing in the dataset
     #  b) of all names of people appearing in the dataset
@@ -233,7 +253,7 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
         names.append(person_name)
         if len(images) >= 2:
             names_gte2.append(person_name)
-    
+
     # Calculate maximum amount of possible pairs of images showing the
     # same person (not identical with "good" pairs, e.g. may be 10,000
     # times Arnold Schwarzenegger)
@@ -244,11 +264,12 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
             k = len(images_by_person[name])
             sum_avail_ordered += k*(k-1)
             sum_avail_unordered += k*(k-1)/2
-        print("Can collect max %d ordered and %d unordered pairs of images that show the _same_ person." % (sum_avail_ordered, sum_avail_unordered))
-    
+        print("Can collect max %d ordered and %d unordered pairs of images " \
+              "that show the _same_ person." % (sum_avail_ordered, sum_avail_unordered))
+
     # ---
     # Build pairs of images
-    # 
+    #
     # We use stratified sampling over the person to sample images.
     # So we pick first a name among all available person names and then
     # randomly select an image of that person. (In contrast to picking a random
@@ -256,10 +277,10 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
     # the images more uniform over the persons. (In contrast to having a very
     # skewed distribution favoring much more people with many images.)
     # ---
-    
+
     # result
     pairs = []
-    
+
     # counters
     # only nb_added is really needed, we other ones are for print-output
     # in verbose mode
@@ -267,11 +288,11 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
     nb_same_p_same_img = 0 # pairs of images of same person, same image
     nb_same_p_diff_img = 0 # pairs of images of same person, different images
     nb_diff = 0
-    
+
     # set that saves identifiers for pairs of images that have
     # already been added to the result.
-    added = set() 
-    
+    added = set()
+
     # -------------------------
     # y = 1 (pairs with images of the same person)
     # -------------------------
@@ -283,10 +304,10 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
             image2 = random.choice(images_by_person[person])
         else:
             image2 = random.choice([image for image in images_by_person[person] if image != image1])
-        
+
         pair = ImagePair(image1, image2)
         key = pair.get_key(ignore_order)
-        
+
         # add the ImagePair to the output, if the same pair hasn't been already
         # picked
         if key not in added:
@@ -296,7 +317,7 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
             nb_same_p_diff_img += 1 if not pair.same_image else 0
             # log this pair as already added (dont add it a second time)
             added.add(key)
-    
+
     # -------------------------
     # y = 0 (pairs with images of different persons)
     # -------------------------
@@ -304,14 +325,14 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
         # pick randomly two different persons names to sample each one image from
         person1 = random.choice(names)
         person2 = random.choice([person for person in names if person != person1])
-        
+
         # we dont have to check here whether the images are the same,
         # because they come from different persons
         image1 = random.choice(images_by_person[person1])
         image2 = random.choice(images_by_person[person2])
         pair = ImagePair(image1, image2)
         key = pair.get_key(ignore_order)
-        
+
         # add the ImagePair to the output, if the same pair hasn't been already
         # picked
         if key not in added:
@@ -320,26 +341,28 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False, ignore_o
             nb_diff += 1
             # log this pair as already added (dont add it a second time)
             added.add(key)
-    
+
     # Shuffle the created list
     random.shuffle(pairs)
-    
+
     # Print some statistics
     if verbose:
         print("Collected %d pairs of images total." % (nb_added,))
-        print("Collected %d pairs of images showing the same person (%d are pairs of identical images)." % (nb_same_p_same_img + nb_same_p_diff_img, nb_same_p_same_img))
+        print("Collected %d pairs of images showing the same person (%d are " \
+              "pairs of identical images)." % (nb_same_p_same_img + nb_same_p_diff_img, \
+                                               nb_same_p_same_img))
         print("Collected %d pairs of images showing different persons." % (nb_diff,))
-    
+
     # reset the RNG to the state that it had before calling the method
     if seed is not None:
         random.setstate(state) # state was set at the start of this function
-    
+
     return pairs
 
 def image_pairs_to_xy(image_pairs):
     """Converts a list of ImagePair objects to X (array of pixel values) and
     Y (labels) to use during training/testing.
-    
+
     Args:
         image_pairs: List of ImagePair objects.
     Returns:
@@ -350,24 +373,25 @@ def image_pairs_to_xy(image_pairs):
     """
     X = np.zeros((len(image_pairs), 2, IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8)
     y = np.zeros((len(image_pairs),), dtype=np.float32)
-    
+
     for i, pair in enumerate(image_pairs):
         X[i] = pair.get_contents()
         y[i] = Y_SAME if pair.same_person else Y_DIFFERENT
-    
+
     return X, y
 
-def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True, n_highest=250, show_plot_windows=True, save_to_filepath=None):
+def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True,
+                      n_highest=250, show_plot_windows=True, save_to_filepath=None):
     """Draw barcharts showing the number of pictures per person for each dataset (train, val, test).
-    
+
     Each bar in the chart resembles one person and is higher if there are
     more images of that person in the dataset. The bars are ordered descending
     (person with the most images first). Only the first 250 persons are shown.
-    
+
     A barchart with very unequal bar heights resembles a skewed dataset where
     a small amount of different persons make up most of the images, while a lot
     of other persons in the dataset have barely any images associated with them.
-    
+
     Args:
         pairs_train: List of pairs of images (ImagePair) of the training dataset.
         pairs_val: List of pairs of images (ImagePair) of the validation dataset.
@@ -383,10 +407,10 @@ def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True, n_hi
     """
     color = "b" # color of bars (blue)
     bars_width = 0.2
-    
+
     fig, (ax1, ax2, ax3) = plt.subplots(nrows=3, figsize=(20, 12))
     plt.subplots_adjust(hspace=0.5)
-    
+
     # Header/Title of the whole plot
     title = "Amount of images per person in each dataset. " \
             "A higher bar means that more images of that person appear in the dataset.\n" \
@@ -395,12 +419,11 @@ def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True, n_hi
         title += "Counts are only based on pairs of images showing the same person. "
     title += "Showing only the %d persons with highest values (per dataset)." % (n_highest)
     fig.suptitle(title, fontsize=14)
-    
-    
+
     def plot_one_chart(ax, pairs, dataset_name, n_highest_legend=15):
         """This subfunction draws the bar chart of one dataset.
         It will be called for training, validation and test dataset.
-        
+
         Args:
             ax: The matplotlib ax to draw to.
             pairs: List of pairs of images (ImagePair) of the dataset.
@@ -415,12 +438,12 @@ def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True, n_hi
             if not only_y_same or (only_y_same and pair.same_person):
                 name_to_images[pair.image1.person].append(pair.image1)
                 name_to_images[pair.image2.person].append(pair.image2)
-        
+
         names_with_counts = [(name, len(images)) for name, images in name_to_images.iteritems()]
         names_with_counts.sort(key=lambda name_with_count: name_with_count[1], reverse=True)
         names_with_counts = names_with_counts[0:n_highest]
         only_counts = np.array([count for name, count in names_with_counts])
-        
+
         # estimate the positions of the pairs and the names of the person
         # of each bar
         bars_positions = np.arange(len(names_with_counts))
@@ -428,19 +451,19 @@ def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True, n_hi
         # we'll abbreviate names to their capital letters below the x axis
         bars_names_short = [re.sub(r"[^A-Z]", "", name) for name, count in names_with_counts]
         bars_values = only_counts
-        
+
         # draw the bars
         ax.bar(bars_positions, bars_values, bars_width, color=color)
-        
+
         # draw labels for x and y axis, the subplot title and the person names
         # below the x axis
         ax.set_ylabel("Count of images")
         ax.set_xlabel("Person name")
         ax.set_title(dataset_name)
-        
+
         ax.set_xticks(bars_positions + bars_width)
         ax.set_xticklabels(tuple(bars_names_short), rotation=90, size="x-small")
-        
+
         # ----
         # create the legend at top right of each chart
         # The legend translates abbreviated names (below x axis) to full names,
@@ -457,22 +480,25 @@ def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True, n_hi
             else:
                 text_arr2.append(item)
         textstr = " ".join(text_arr2)
-        textstr += " (+%d others shown of total %d persons)" % (max(0, len(bars_names) - n_highest_legend), len(name_to_images))
-        
+        textstr += " (+%d others shown of total %d persons)" \
+                   % (max(0, len(bars_names) - n_highest_legend), len(name_to_images))
+
         if len(pairs) > 0:
-            textstr += " (median=%.1f, mean=%.1f, std=%.2f)" % (np.median(only_counts), np.mean(only_counts), np.std(only_counts))
+            textstr += " (median=%.1f, mean=%.1f, std=%.2f)" \
+                       % (np.median(only_counts), np.mean(only_counts), np.std(only_counts))
         else:
             textstr += " (median=%.1f, mean=%.1f, std=%.2f)" % (0, 0, 0)
-        
-        ax.text(0.3, 0.96, textstr, transform=ax.transAxes, fontsize=8, verticalalignment="top", bbox=dict(alpha=0.5))
+
+        ax.text(0.3, 0.96, textstr, transform=ax.transAxes, fontsize=8,
+                verticalalignment="top", bbox=dict(alpha=0.5))
         # ----
-    
+
     plot_one_chart(ax1, pairs_train, "Train (%d samples)" % (len(pairs_train)))
     plot_one_chart(ax2, pairs_val, "Validation (%d samples)" % (len(pairs_val)))
     plot_one_chart(ax3, pairs_test, "Test (%d samples)" % (len(pairs_test)))
-    
+
     if save_to_filepath:
         fig.savefig(save_to_filepath)
-        
+
     if show_plot_windows:
         plt.show()
