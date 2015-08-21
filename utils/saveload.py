@@ -1,17 +1,18 @@
 # -*- coding: utf-8 -*-
 """Various functions related to saving and loading of weights and optimizer states."""
-from __future__ import print_function
+from __future__ import print_function, absolute_import
 import os
 import os.path
 import h5py
 import sys
 import re
-from History import History
+from utils.History import History
 
-def load_previous_model(identifier, model, optimizer, la_plotter, opt_dir, weights_dir, csv_filepath):
+def load_previous_model(identifier, model, optimizer, la_plotter, opt_dir,
+                        weights_dir, csv_filepath):
     """Loads the model of a previous experiment with the provided identifier
     (weights, optimizer state, history, plot).
-    
+
     Args:
         identifier: Identifier of the previous experiment.
         model: The current model. That model's weights will be changed to the loaded ones.
@@ -20,7 +21,7 @@ def load_previous_model(identifier, model, optimizer, la_plotter, opt_dir, weigh
             the loaded one.
         la_plotter: The current plotter for loss and accuracy. Will be updated
             with the loaded history data.
-    
+
     Returns:
         Will return a tupel (last epoch, history), where "last epoch" is the
         last epoch that was finished in the old experiment and "history"
@@ -29,27 +30,29 @@ def load_previous_model(identifier, model, optimizer, la_plotter, opt_dir, weigh
     # load optimizer state
     (success, last_epoch) = load_optimizer_state(optimizer, opt_dir, identifier)
     if not success:
-        print("[WARNING] could not successfully load optimizer state of identifier '{}'.".format(identifier))
-    
+        print("[WARNING] could not successfully load optimizer state of " \
+              "identifier '{}'.".format(identifier))
+
     # load weights
     # we overwrite the results of the optimizer loading here, because errors
     # there are not very important, we can still go on training.
     (success, last_epoch) = load_weights(model, weights_dir, identifier)
-    
+
     if not success:
-        raise Exception("Cannot continue previous experiment, because no weights were saved (yet?).")
-    
+        raise Exception("Cannot continue previous experiment, because no weights were "
+                        "saved (yet?).")
+
     # load history from csv file
     history = History()
     history.load_from_file(csv_filepath.format(identifier=identifier), last_epoch=last_epoch)
-    
+
     # update loss acc plotter
     for i, epoch in enumerate(history.epochs):
         la_plotter.add_values(epoch,
                               loss_train=history.loss_train[i], loss_val=history.loss_val[i],
                               acc_train=history.acc_train[i], acc_val=history.acc_val[i],
                               redraw=False)
-    
+
     return history.epochs[-1], history
 
 def save_model_weights(model, file_dir, file_name, overwrite=False):
@@ -77,7 +80,7 @@ def save_optimizer_state(optimizer, file_dir, file_name, overwrite=False):
         overwrite: Whether to overwrite an existing file. If set to False,
             the program will stop and ask whether to overwrite the content.
     """
-    
+
     filepath = os.path.join(file_dir, file_name)
 
     state = optimizer.get_state()
@@ -104,10 +107,10 @@ def save_optimizer_state(optimizer, file_dir, file_name, overwrite=False):
     for n, update in enumerate(state):
         is_scalar = True if len(update.shape) == 0 else False
         shape = (1,) if is_scalar else update.shape
-        
+
         update_name = 'update_{}'.format(n)
         update_dset = group.create_dataset(update_name, shape, dtype=update.dtype)
-        
+
         if not is_scalar > 1:
             update_dset[:] = update
         else:
@@ -116,17 +119,16 @@ def save_optimizer_state(optimizer, file_dir, file_name, overwrite=False):
     f.flush()
     f.close()
 
-
 def load_weights(model, save_weights_dir, previous_identifier):
     """Load the weights of an older experiment into a model.
-    
+
     This function searches for files called "<previous_identifier>.at1234.weights"
     or "<previous_identifier>.last.weights" (wehre at1234 represents epoch 1234).
     If a *.last file was found, that one will be used. Otherwise the weights file
     with the highest epoch number will be used.
-    
+
     The new and the old model must have identical architecture/layers.
-    
+
     Args:
         model: The model for which to load the weights. The current weights
             will be overwritten.
@@ -139,8 +141,10 @@ def load_weights(model, save_weights_dir, previous_identifier):
         and "epoch" represents the epoch of that weights file (e.g. 1234 in *.at1234)
         and "last" represents a *.last file.
     """
-    filenames = [f for f in os.listdir(save_weights_dir) if os.path.isfile(os.path.join(save_weights_dir, f))]
-    filenames = [f for f in filenames if f.startswith(previous_identifier + ".") and f.endswith(".weights")]
+    filenames = [f for f in os.listdir(save_weights_dir) \
+                         if os.path.isfile(os.path.join(save_weights_dir, f))]
+    filenames = [f for f in filenames \
+                         if f.startswith(previous_identifier + ".") and f.endswith(".weights")]
     if len(filenames) == 0:
         return (False, -1)
     else:
@@ -157,7 +161,8 @@ def load_weights(model, save_weights_dir, previous_identifier):
             # pick the 2nd entry ("at500") and convert the digits to an
             # integer (500). We sort the list of ints in reverse to have the
             # highest value at the first position (e.g. [500, 400, 300, ...]).
-            epochs = sorted([int(re.sub("[^0-9]", "", f.split(".")[1])) for f in filenames], reverse=True)
+            epochs = [int(re.sub("[^0-9]", "", f.split(".")[1])) for f in filenames]
+            epochs = sorted(epochs, reverse=True)
             fname = "{}.at{}.weights".format(previous_identifier, epochs[0])
             weights_filepath = os.path.join(save_weights_dir, fname)
             load_weights_seq(model, weights_filepath)
@@ -165,13 +170,13 @@ def load_weights(model, save_weights_dir, previous_identifier):
 
 def load_weights_seq(seq, filepath):
     """Loads the weights from an exactly specified weights file into a model.
-    
+
     This function is identical to Kera's load_weights function, but checks first
     if the file exists and raises an error if that is not the case.
-    
+
     In contrast to the load_weights function above, this one expects the full
     path to the weights file and does not search on its own for a well fitting one.
-    
+
     Args:
         seq: The model for which to load the weights. The current weights
             will be overwritten.
@@ -190,14 +195,14 @@ def load_weights_seq(seq, filepath):
 
 def load_optimizer_state(optimizer, save_optimizer_state_dir, previous_identifier):
     """Loads the state of an optimizer from a previous experiment.
-    
+
     This function works similar to the load_weights function and searches for
     "<identifier>.at1234.optstate" or "<identifier>.last.optstate" files in
     the provided directory.
-    
+
     This function was only really tested with Adagrad and seemed to cause errors
     with Adam.
-    
+
     Args:
         optimizer: The optimizer for which to load the state. The current state
             will be overwritten.
@@ -213,14 +218,17 @@ def load_optimizer_state(optimizer, save_optimizer_state_dir, previous_identifie
         and "last" represents a *.last file.
     """
     odir = save_optimizer_state_dir
-    filenames = [f for f in os.listdir(odir) if os.path.isfile(os.path.join(odir, f))]
-    filenames = [f for f in filenames if f.startswith(previous_identifier + ".") and f.endswith(".optstate")]
+    filenames = [f for f in os.listdir(odir) \
+                         if os.path.isfile(os.path.join(odir, f))]
+    filenames = [f for f in filenames \
+                         if f.startswith(previous_identifier + ".") and f.endswith(".optstate")]
     if len(filenames) == 0:
         return (False, -1)
     else:
         filenames_last = [f for f in filenames if f.endswith(".last.optstate")]
         if len(filenames_last) >= 2:
-            raise Exception("Ambiguous optimizer state files for model, multiple files match description.")
+            raise Exception("Ambiguous optimizer state files for model, multiple files " \
+                            "match description.")
         if len(filenames_last) == 1:
             optstate_filepath = os.path.join(odir, filenames_last[0])
             optstate_epoch = "last"
@@ -230,11 +238,12 @@ def load_optimizer_state(optimizer, save_optimizer_state_dir, previous_identifie
             # pick the 2nd entry ("at500") and convert the digits to an
             # integer (500). We sort the list of ints in reverse to have the
             # highest value at the first position (e.g. [500, 400, 300, ...]).
-            epochs = sorted([int(re.sub("[^0-9]", "", f.split(".")[1])) for f in filenames], reverse=True)
+            epochs = [int(re.sub("[^0-9]", "", f.split(".")[1])) for f in filenames]
+            epochs = sorted(epochs, reverse=True)
             fname = "{}.at{}.optstate".format(previous_identifier, epochs[0])
             optstate_filepath = os.path.join(odir, fname)
             optstate_epoch = epochs[0]
-            
+
         # Loads state from HDF5 file
         if not os.path.isfile(optstate_filepath):
             raise Exception("Optimizer state file '%s' does not exist." % (optstate_filepath,))
@@ -245,5 +254,5 @@ def load_optimizer_state(optimizer, save_optimizer_state_dir, previous_identifie
             updates = [g['update_{}'.format(p)] for p in range(nb_updates)]
             optimizer.set_state(updates)
             f.close()
-            
+
         return (True, optstate_epoch)
