@@ -13,7 +13,7 @@ This convolutional neural network estimates whether two images of human faces sh
 
 # Usage
 
-Install all requirements, download the LFWcrop_grey dataset, extract it and clone the repository.
+Install all requirements, download the [LFWcrop_grey](http://conradsanderson.id.au/lfwcrop/) dataset, extract it and clone the repository.
 Then you can train the network using
 ```
 python train.py name_of_experiment --images="/path/to/lfwcrop_grey/faces" --dropout=0.5 --augmul=1.5

@@ -494,8 +494,10 @@ def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True,
         # ----
 
     plot_one_chart(ax1, pairs_train, "Train (%d samples)" % (len(pairs_train)))
-    plot_one_chart(ax2, pairs_val, "Validation (%d samples)" % (len(pairs_val)))
-    plot_one_chart(ax3, pairs_test, "Test (%d samples)" % (len(pairs_test)))
+    if len(pairs_val) > 0:
+        plot_one_chart(ax2, pairs_val, "Validation (%d samples)" % (len(pairs_val)))
+    if len(pairs_test) > 0:
+        plot_one_chart(ax3, pairs_test, "Test (%d samples)" % (len(pairs_test)))
 
     if save_to_filepath:
         fig.savefig(save_to_filepath)

@@ -11,8 +11,8 @@ or more complex:
     python train.py name_of_experiment
            --images="/path/to/lfwcrop_grey/faces"
            --load="old_experiment_name"
-           --dropout=0.0
-           --augmul=1.0
+           --dropout=0.5
+           --augmul=1.5
 
 where
     name_of_experiment:
@@ -20,10 +20,10 @@ where
     --load="old_experiment_name":
         Is the name of an old experiment to continue. Must have the identical
         network architecture and optimizer as the new network.
-    --dropout=0.0:
+    --dropout=0.5:
         Dropout strength to use for the last two dropout layers.
-    --augmul=1.0:
-        Augmentation strength to use when augmentating images (e.g. rotation, shift).
+    --augmul=1.5:
+        Augmentation strength to use when augmenting images (e.g. rotation, shift).
         0.5 is weak, 1.0 is normal, 1.5+ is strong.
 """
 from __future__ import absolute_import, division, print_function
@@ -40,7 +40,7 @@ from scipy import misc
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Reshape, Flatten, Activation
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
-from keras.optimizers import Adagrad
+from keras.optimizers import Adagrad, Adam
 from keras.regularizers import l2
 from keras.layers.normalization import BatchNormalization
 from keras.layers.advanced_activations import LeakyReLU
@@ -211,6 +211,9 @@ def main():
         epoch_start = 0
         history = History()
 
+    print("Model summary:")
+    model.summary()
+
     # run the training loop
     print("Training...")
     train_loop(args.identifier, model, optimizer, epoch_start, history,
@@ -259,25 +262,29 @@ def create_model(dropout=None):
     # Convolutional Layers
     # -----
     # 32 x 32+2 x 64+2 = 32x34x66
-    model.add(Convolution2D(32, 1, 3, 3, border_mode="full"))
+    model.add(Convolution2D(32, 3, 3, border_mode="same", input_shape=(1, 32, 64)))
+    model.add(BatchNormalization())
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.00))
 
     # 32 x 34-2 x 66-2 = 32x32x64
-    model.add(Convolution2D(32, 32, 3, 3, border_mode="valid"))
+    model.add(Convolution2D(32, 3, 3, border_mode="same"))
+    model.add(BatchNormalization())
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.00))
 
     # 32 x 32/2 x 64/2 = 32x16x32
-    model.add(MaxPooling2D(poolsize=(2, 2)))
+    model.add(MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
 
     # 64 x 16-2 x 32-2 = 64x14x30
-    model.add(Convolution2D(64, 32, 3, 3, border_mode="valid"))
+    model.add(Convolution2D(64, 3, 3, border_mode="same"))
+    model.add(BatchNormalization())
     model.add(LeakyReLU(0.33))
     model.add(Dropout(0.00))
 
     # 64 x 14-2 x 30-2 = 64x12x28
-    model.add(Convolution2D(64, 64, 3, 3, border_mode="valid"))
+    model.add(Convolution2D(64, 3, 3, border_mode="same"))
+    model.add(BatchNormalization())
     model.add(LeakyReLU(0.33))
     model.add(Dropout(dropout))
 
@@ -287,30 +294,33 @@ def create_model(dropout=None):
     # -----
     # 64x12x28 = 64x336 = 21504
     # In 64*4 slices: 64*4 x 336/4 = 256x84
-    model.add(Reshape(64*4, int(336/4)))
-    model.add(BatchNormalization((64*4, int(336/4))))
+    model.add(Reshape((64*4, int((16*32)/4))))
+    #model.add(BatchNormalization((64*4, int(336/4))))
 
     # -----
     # GRU / Recurrent Layer
     # processes each slice on its own
     # -----
     # GRU with 64*4 timesteps, each returning 64 values
-    model.add(GRU(336/4, 64, return_sequences=True))
+    #model.add(GRU(336/4, 64, return_sequences=True))
+    model.add(GRU(64, return_sequences=True))
     model.add(Flatten())
-    model.add(BatchNormalization((64*(64*4),)))
+    #model.add(BatchNormalization((64*(64*4),)))
     model.add(Dropout(dropout))
 
     # -----
     # Output layer
     # We only need one output neuron, therefore a softmax is unneccessary
     # -----
-    model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
+    #model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
+    model.add(Dense(1, W_regularizer=l2(0.000001)))
     model.add(Activation("sigmoid"))
 
-    optimizer = Adagrad()
+    #optimizer = Adagrad()
+    optimizer = Adam()
 
     print("Compiling model...")
-    model.compile(loss="binary_crossentropy", class_mode="binary", optimizer=optimizer)
+    model.compile(loss="binary_crossentropy", optimizer=optimizer, metrics=["accuracy"])
 
     return model, optimizer
 
@@ -357,7 +367,7 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
 
         for X_batch, Y_batch in flow_batches(X_train, y_train, ia_train,
                                              shuffle=True, train=True):
-            loss, acc = model.train_on_batch(X_batch, Y_batch, accuracy=True)
+            loss, acc = model.train_on_batch(X_batch, Y_batch)
             progbar.add(len(X_batch), values=[("train loss", loss), ("train acc", acc)])
             loss_train_sum += (loss * len(X_batch))
             acc_train_sum += (acc * len(X_batch))
@@ -369,7 +379,7 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
         # and calculate loss and accuracy for each batch
         for X_batch, Y_batch in flow_batches(X_val, y_val, ia_val,
                                              shuffle=False, train=False):
-            loss, acc = model.test_on_batch(X_batch, Y_batch, accuracy=True)
+            loss, acc = model.test_on_batch(X_batch, Y_batch)
             progbar.add(len(X_batch), values=[("val loss", loss), ("val acc", acc)])
             loss_val_sum += (loss * len(X_batch))
             acc_val_sum += (acc * len(X_batch))
