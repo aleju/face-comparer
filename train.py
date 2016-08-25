@@ -11,8 +11,6 @@ or more complex:
     python train.py name_of_experiment
            --images="/path/to/lfwcrop_grey/faces"
            --load="old_experiment_name"
-           --dropout=0.5
-           --augmul=1.5
 
 where
     name_of_experiment:
@@ -20,11 +18,6 @@ where
     --load="old_experiment_name":
         Is the name of an old experiment to continue. Must have the identical
         network architecture and optimizer as the new network.
-    --dropout=0.5:
-        Dropout strength to use for the last two dropout layers.
-    --augmul=1.5:
-        Augmentation strength to use when augmenting images (e.g. rotation, shift).
-        0.5 is weak, 1.0 is normal, 1.5+ is strong.
 """
 from __future__ import absolute_import, division, print_function
 
@@ -40,32 +33,40 @@ from scipy import misc
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout, Reshape, Flatten, Activation
 from keras.layers.convolutional import Convolution2D, MaxPooling2D
-from keras.optimizers import Adagrad, Adam
-from keras.regularizers import l2
+from keras.optimizers import Adagrad, Adam, Adamax, SGD
+from keras.regularizers import l1, l2, l1l2
 from keras.layers.normalization import BatchNormalization
 from keras.layers.advanced_activations import LeakyReLU
 from keras.layers.recurrent import GRU
+from keras.layers import merge, Input
+from keras.models import Model
+from keras.layers.noise import GaussianNoise
 from keras.utils import generic_utils
 
 from libs.ImageAugmenter import ImageAugmenter
 from libs.laplotter import LossAccPlotter
-from utils.saveload import load_previous_model, save_model_weights, save_optimizer_state
+from utils.saveload import load_previous_model, save_model_weights
 from utils.datasets import get_image_pairs, image_pairs_to_xy, plot_dataset_skew
 from utils.History import History
+from utils.Progbar import Progbar
 
 SEED = 42
 TRAIN_COUNT_EXAMPLES = 20000
 VALIDATION_COUNT_EXAMPLES = 256
 EPOCHS = 1000 * 1000
-BATCH_SIZE = 64
+BATCH_SIZE = 128
+BATCH_SIZE_VAL = 64
+INPUT_HEIGHT = 32
+INPUT_WIDTH = 32
+INPUT_CHANNELS = 1
 SAVE_DIR = os.path.dirname(os.path.realpath(__file__)) + "/experiments"
 SAVE_PLOT_FILEPATH = "%s/plots/{identifier}.png" % (SAVE_DIR)
 SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_dataset_skew.png" % (SAVE_DIR)
 SAVE_CSV_FILEPATH = "%s/csv/{identifier}.csv" % (SAVE_DIR)
 SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
-SAVE_OPTIMIZER_STATE_DIR = "%s/optstate" % (SAVE_DIR)
+#SAVE_OPTIMIZER_STATE_DIR = "%s/optstate" % (SAVE_DIR)
 SAVE_WEIGHTS_AFTER_EPOCHS = 1
-SHOW_PLOT_WINDOWS = True
+SHOW_PLOT_WINDOWS = False
 
 np.random.seed(SEED)
 random.seed(SEED)
@@ -91,19 +92,14 @@ def main():
                         help="Identifier of a previous experiment that you " \
                              "want to continue (loads weights, optimizer state "
                              "and history).")
-    parser.add_argument("--dropout", required=False,
-                        help="Dropout rate (0.0 - 1.0) after the last " \
-                             "conv-layer and after the GRU layer. Default " \
-                             "is 0.5.")
-    parser.add_argument("--augmul", required=False,
-                        help="Multiplicator for the augmentation " \
-                             "(0.0=no augmentation, 1.0=normal aug., " \
-                             "2.0=rather strong aug.). Default is 1.5.")
     args = parser.parse_args()
     validate_identifier(args.identifier, must_exist=False)
 
     if not os.path.isdir(args.images):
         raise Exception("The provided filepath to the dataset seems to not exist.")
+
+    if not args.images.endswith("/faces"):
+        print("[WARNING] Filepath to the dataset is expected to usually end in '/faces', i.e. the default directory containing all face images in the lfwcrop_grey dataset.")
 
     if args.load:
         validate_identifier(args.load)
@@ -116,9 +112,6 @@ def main():
                                   % (args.identifier, args.load))
             if not agreed:
                 return
-
-    if args.augmul is None:
-        args.augmul = 1.5
 
     # load validation set
     # we load this before the training set so that it is less skewed (otherwise
@@ -147,15 +140,11 @@ def main():
 
     # we loaded pairs of filepaths so far, now load the contents
     print("Loading image contents from hard drive...")
-    X_val, y_val = image_pairs_to_xy(pairs_val)
-    X_train, y_train = image_pairs_to_xy(pairs_train)
+    X_val, y_val = image_pairs_to_xy(pairs_val, height=INPUT_HEIGHT, width=INPUT_WIDTH)
+    X_train, y_train = image_pairs_to_xy(pairs_train, height=INPUT_HEIGHT, width=INPUT_WIDTH)
 
     # Plot dataset skew
-    print("Plotting dataset skew. (Only for pairs of images showing the same " \
-          "person.)")
-    print("More unequal bars mean that the dataset is more skewed (towards very " \
-          "few people).")
-    print("Close the chart to continue.")
+    print("Saving dataset skew plot to file...")
     plot_dataset_skew(
         pairs_train, pairs_val, [],
         only_y_same=True,
@@ -165,7 +154,7 @@ def main():
 
     # initialize the network
     print("Creating model...")
-    model, optimizer = create_model(args.dropout)
+    model, optimizer = create_model()
 
     # Calling the compile method seems to mess with the seeds (theano problem?)
     # Therefore they are reset here (numpy seeds seem to be unaffected)
@@ -177,24 +166,23 @@ def main():
     # -------------------
     # initialize the plotter for loss and accuracy
     sp_fpath = SAVE_PLOT_FILEPATH.format(identifier=args.identifier)
-    la_plotter = LossAccPlotter(save_to_filepath=sp_fpath)
+    la_plotter = LossAccPlotter(save_to_filepath=sp_fpath, show_plot_window=SHOW_PLOT_WINDOWS)
 
-    # intialize the image augmenters
-    # they are going to rotate, shift etc. the images
-    augmul = float(args.augmul)
-    ia_train = ImageAugmenter(64, 64, hflip=True, vflip=False,
-                              scale_to_percent=1.0 + (0.075*augmul),
+    # initialize the image augmenter for training images
+    ia_train = ImageAugmenter(INPUT_WIDTH, INPUT_HEIGHT, hflip=True, vflip=False,
+                              scale_to_percent=1.1,
                               scale_axis_equally=False,
-                              rotation_deg=int(7*augmul),
-                              shear_deg=int(3*augmul),
-                              translation_x_px=int(3*augmul),
-                              translation_y_px=int(3*augmul))
+                              rotation_deg=20,
+                              shear_deg=6,
+                              translation_x_px=4,
+                              translation_y_px=4)
+
     # prefill the training augmenter with lots of random affine transformation
     # matrices, so that they can be reused many times
     ia_train.pregenerate_matrices(15000)
 
     # we dont want any augmentations for the validation set
-    ia_val = ImageAugmenter(64, 64)
+    ia_val = ImageAugmenter(INPUT_WIDTH, INPUT_HEIGHT)
 
     # load previous data if requested
     # includes: weights (works only if new and old model are identical),
@@ -204,9 +192,8 @@ def main():
     if args.load:
         print("Loading previous model...")
         epoch_start, history = \
-            load_previous_model(args.load, model, optimizer, la_plotter,
-                                SAVE_OPTIMIZER_STATE_DIR, SAVE_WEIGHTS_DIR,
-                                SAVE_CSV_FILEPATH)
+            load_previous_model(args.load, model, la_plotter,
+                                SAVE_WEIGHTS_DIR, SAVE_CSV_FILEPATH)
     else:
         epoch_start = 0
         history = History()
@@ -222,107 +209,60 @@ def main():
     print("Finished.")
 
 def create_model(dropout=None):
-    """Creates, compiles and returns the neural net with an Adagrad optimizer object.
-
-    Structure of the network:
-        1. Input: (BatchSize, 1, 32, 64) -- two grayscale images next to each other
-        2. Conv2D, 32 output planes, kW/kH=3/3, Activation=LeakyReLU(0.33)
-        3. Conv2D, 32 output planes, kW/kH=3/3, Activation=LeakyReLU(0.33)
-        4. Max pooling kW/kH=2/2
-        5. Conv2D, 64 output planes, kW/kH=3/3, Activation=LeakyReLU(0.33)
-        6. Conv2D, 64 output planes, kW/kH=3/3, Activation=LeakyReLU(0.33)
-        7. Dropout
-        8. Reshape conv layer results from 64 images to 64 times 4 slices of images
-        9. Normalize
-        10. GRU (processes each slice, 64 nodes per timestep)
-        11. Flatten GRU results to 1D vector
-        12. Normalize
-        13. Dropout
-        14. Fully connected layer from (64*4)*64 to 1 neuron, Activation=sigmoid
-        15. Output: 1 value between 0 and 1
-
-    Args:
-        dropout: Dropout probability to use after the conv-layers and after
-            the GRU.
-    Returns:
-        Tuple of (neural net, optimizer), where the optimizer is Adagrad.
+    """Expects batches from flow_batches_branched()
     """
-    dropout = float(dropout) if dropout is not None else 0.50
-    print("Dropout will be set to {}".format(dropout))
 
-    model = Sequential()
 
-    # Note: using dropout(0.00) in the network enables us to load an old
-    # network's weights and set the dropout at these positions to >0.00 by
-    # changing the code here. If we would not have these layers, adding them
-    # (with p>0.00) and then loading an old network would result in a layer
-    # number mismatch and the weights could no longer be associated properly.
+    init_conv = "orthogonal"
+    init_dense = "glorot_normal"
 
-    # -----
-    # Convolutional Layers
-    # -----
-    # 32 x 32+2 x 64+2 = 32x34x66
-    model.add(Convolution2D(32, 3, 3, border_mode="same", input_shape=(1, 32, 64)))
-    model.add(BatchNormalization())
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
+    def conv(x, n_filters, kH, kW, sH, sW, border_same=True, drop=0.1):
+        border_mode = "same" if border_same else "valid"
+        x = Convolution2D(n_filters, kH, kW, subsample=(sH, sW), border_mode=border_mode, init=init_conv)(x)
+        x = LeakyReLU(0.33)(x)
+        if drop > 0:
+            x = Dropout(drop)(x)
+        return x
 
-    # 32 x 34-2 x 66-2 = 32x32x64
-    model.add(Convolution2D(32, 3, 3, border_mode="same"))
-    model.add(BatchNormalization())
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
+    face_input = Input(shape=(INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH), dtype="float32")
 
-    # 32 x 32/2 x 64/2 = 32x16x32
-    model.add(MaxPooling2D(pool_size=(2, 2), strides=(2, 2)))
+    face = conv(face_input, 32, 3, 3, 1, 1, False) # 30x30
+    face = conv(face, 32, 3, 3, 1, 1, False) # 28x28
+    face = conv(face, 64, 5, 5, 2, 2, True) # 14x14
+    face = conv(face, 64, 3, 3, 1, 1, False) # 12x12
+    face = conv(face, 128, 5, 5, 2, 2, True) # 6x6
+    face = conv(face, 128, 3, 3, 1, 1, False, drop=0.25) # 4x4
+    face = Flatten()(face)
+    face = Dense(512, init=init_dense)(face)
+    face = BatchNormalization(mode=2)(face)
+    face = Activation("tanh")(face)
+    face_output = face
 
-    # 64 x 16-2 x 32-2 = 64x14x30
-    model.add(Convolution2D(64, 3, 3, border_mode="same"))
-    model.add(BatchNormalization())
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(0.00))
+    face_model = Model(face_input, face_output)
+    face_left_input = Input(shape=(INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH), dtype="float32", name="face_left")
+    face_right_input = Input(shape=(INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH), dtype="float32", name="face_right")
+    face_left = face_model(face_left_input)
+    face_right = face_model(face_right_input)
 
-    # 64 x 14-2 x 30-2 = 64x12x28
-    model.add(Convolution2D(64, 3, 3, border_mode="same"))
-    model.add(BatchNormalization())
-    model.add(LeakyReLU(0.33))
-    model.add(Dropout(dropout))
+    merged = merge([face_left, face_right], mode=lambda tensors: abs(tensors[0] - tensors[1]), output_shape=(512,))
+    merged = Dropout(0.5)(merged)
 
-    # -----
-    # Reshape the output of the conv layers to 64 times 4 slices (roughly hairline,
-    # eyeline, noseline, mouthline)
-    # -----
-    # 64x12x28 = 64x336 = 21504
-    # In 64*4 slices: 64*4 x 336/4 = 256x84
-    model.add(Reshape((64*4, int((16*32)/4))))
-    #model.add(BatchNormalization((64*4, int(336/4))))
+    merged = Dense(256, init=init_dense)(merged)
+    merged = BatchNormalization()(merged)
+    merged = LeakyReLU(0.33)(merged)
+    merged = Dropout(0.5)(merged)
 
-    # -----
-    # GRU / Recurrent Layer
-    # processes each slice on its own
-    # -----
-    # GRU with 64*4 timesteps, each returning 64 values
-    #model.add(GRU(336/4, 64, return_sequences=True))
-    model.add(GRU(64, return_sequences=True))
-    model.add(Flatten())
-    #model.add(BatchNormalization((64*(64*4),)))
-    model.add(Dropout(dropout))
+    merged = Dense(1)(merged)
+    merged = Activation("sigmoid")(merged)
 
-    # -----
-    # Output layer
-    # We only need one output neuron, therefore a softmax is unneccessary
-    # -----
-    #model.add(Dense(64*(64*4), 1, init="glorot_uniform", W_regularizer=l2(0.000001)))
-    model.add(Dense(1, W_regularizer=l2(0.000001)))
-    model.add(Activation("sigmoid"))
+    classification_model = Model(input=[face_left_input, face_right_input], output=merged)
 
-    #optimizer = Adagrad()
     optimizer = Adam()
 
     print("Compiling model...")
-    model.compile(loss="binary_crossentropy", optimizer=optimizer, metrics=["accuracy"])
+    classification_model.compile(loss="binary_crossentropy", optimizer=optimizer, metrics=["accuracy"])
 
-    return model, optimizer
+    return classification_model, optimizer
 
 def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
                ia_train, ia_val, X_train, y_train, X_val, y_val):
@@ -363,26 +303,36 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
         nb_examples_val = X_val.shape[0]
 
         # Training loop
-        progbar = generic_utils.Progbar(nb_examples_train)
+        # interval=0 is required for small batch sizes
+        progbar = generic_utils.Progbar(nb_examples_train, interval=0)
+        #progbar = Progbar(nb_examples_train)
 
         for X_batch, Y_batch in flow_batches(X_train, y_train, ia_train,
+                                             batch_size=BATCH_SIZE,
                                              shuffle=True, train=True):
+            bsize = X_batch[0].shape[0] # we dont use BATCH_SIZE here, because the
+                                        # last batch might have less entries than BATCH_SIZE
             loss, acc = model.train_on_batch(X_batch, Y_batch)
-            progbar.add(len(X_batch), values=[("train loss", loss), ("train acc", acc)])
-            loss_train_sum += (loss * len(X_batch))
-            acc_train_sum += (acc * len(X_batch))
+            progbar.add(bsize, values=[("train loss", loss), ("train acc", acc)])
+            loss_train_sum += (loss * bsize)
+            acc_train_sum += (acc * bsize)
 
         # Validation loop
-        progbar = generic_utils.Progbar(nb_examples_val)
+        # interval=0 is required for small batch sizes
+        progbar = generic_utils.Progbar(nb_examples_val, interval=0)
+        #progbar = Progbar(nb_examples_val)
 
         # Iterate over each batch in the validation data
         # and calculate loss and accuracy for each batch
         for X_batch, Y_batch in flow_batches(X_val, y_val, ia_val,
+                                             batch_size=BATCH_SIZE_VAL,
                                              shuffle=False, train=False):
+            bsize = X_batch[0].shape[0] # we dont use BATCH_SIZE here, because the
+                                        # last batch might have less entries than BATCH_SIZE
             loss, acc = model.test_on_batch(X_batch, Y_batch)
-            progbar.add(len(X_batch), values=[("val loss", loss), ("val acc", acc)])
-            loss_val_sum += (loss * len(X_batch))
-            acc_val_sum += (acc * len(X_batch))
+            progbar.add(bsize, values=[("val loss", loss), ("val acc", acc)])
+            loss_val_sum += (loss * bsize)
+            acc_val_sum += (acc * bsize)
 
         # Calculate the loss and accuracy for this epoch
         # (averaged over all training data batches)
@@ -413,9 +363,6 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
             print("Saving model...")
             save_model_weights(model, SAVE_WEIGHTS_DIR,
                                "{}.last.weights".format(identifier), overwrite=True)
-            save_optimizer_state(optimizer, SAVE_OPTIMIZER_STATE_DIR,
-                                 "{}.last.optstate".format(identifier),
-                                 overwrite=True)
 
 def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=False):
     """Uses the datasets (either train. or val.) and returns them batch by batch,
@@ -441,13 +388,11 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
         X = np.copy(X_in)
         y = np.copy(y_in)
 
-        state = np.random.get_state()
         seed = random.randint(1, 10e6)
         np.random.seed(seed)
         np.random.shuffle(X)
         np.random.seed(seed)
         np.random.shuffle(y)
-        np.random.set_state(state)
     else:
         X = X_in
         y = y_in
@@ -455,29 +400,38 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
     # Iterate over every possible batch and collect the examples
     # for that batch
     nb_examples = X.shape[0]
-    nb_batch = int(math.ceil(float(nb_examples)/batch_size))
-    for b in range(nb_batch):
-        batch_end = (b+1)*batch_size
+    batch_start = 0
+    while batch_start < nb_examples:
+        batch_end = batch_start + batch_size
         if batch_end > nb_examples:
-            nb_samples = nb_examples - b*batch_size
-        else:
-            nb_samples = batch_size
+            batch_end = nb_examples
 
         # extract all images of the batch from X
-        batch_start_idx = b*batch_size
-        batch = X[batch_start_idx:batch_start_idx + nb_samples]
+        batch = X[batch_start:batch_end]
+        nb_examples_batch = batch.shape[0]
 
         # augment the images of the batch
         batch_img1 = batch[:, 0, ...] # left images
         batch_img2 = batch[:, 1, ...] # right images
-        batch_img1 = ia.augment_batch(batch_img1)
-        batch_img2 = ia.augment_batch(batch_img2)
+        if train:
+            batch_img1 = ia.augment_batch(batch_img1)
+            batch_img2 = ia.augment_batch(batch_img2)
+        else:
+            batch_img1 = batch_img1 / 255.0
+            batch_img2 = batch_img2 / 255.0
 
         # resize and merge the pairs of images to shape (B, 1, 32, 64), where
         # B is the size of this batch and 1 represents the only channel
         # of the image (grayscale).
-        X_batch = np.zeros((nb_samples, 1, 32, 64))
-        for i in range(nb_samples):
+        # X has usually shape (20000, 2, 64, 64, 3)
+        height = X.shape[2]
+        width = X.shape[3]
+        nb_channels = X.shape[4] if len(X.shape) == 5 else 1
+        X_batch_left = np.zeros((nb_examples_batch, height, width, nb_channels))
+        X_batch_right = np.zeros((nb_examples_batch, height, width, nb_channels))
+        #X_batch_left = np.zeros((nb_examples_batch, height, width))
+        #X_batch_right = np.zeros((nb_examples_batch, height, width))
+        for i in range(nb_examples_batch):
             # sometimes switch positions (left/right) of images during training
             if train and random.random() < 0.5:
                 img1 = batch_img2[i]
@@ -486,18 +440,18 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
                 img1 = batch_img1[i]
                 img2 = batch_img2[i]
 
-            # downsize images
-            # note: imresize projects the image into 0-255, even if it was 0-1.0 before
-            img1 = misc.imresize(img1, (32, 32)) / 255.0
-            img2 = misc.imresize(img2, (32, 32)) / 255.0
-
-            # merge the two images to one image
-            X_batch[i] = np.concatenate((img1, img2), axis=1)
+            X_batch_left[i] = img1[:, :, np.newaxis]
+            X_batch_right[i] = img2[:, :, np.newaxis]
 
         # Collect the y values of the batch
-        y_batch = y[batch_start_idx:batch_start_idx + nb_samples]
+        y_batch = y[batch_start:batch_end]
 
-        yield X_batch, y_batch
+        # from (B, H, W, C) to (B, C, H, W)
+        X_batch_left = X_batch_left.transpose(0, 3, 1, 2)
+        X_batch_right = X_batch_right.transpose(0, 3, 1, 2)
+
+        yield [X_batch_left, X_batch_right], y_batch
+        batch_start = batch_start + nb_examples_batch
 
 def validate_identifier(identifier, must_exist=True):
     """Check whether a used identifier is a valid one or raise an error.

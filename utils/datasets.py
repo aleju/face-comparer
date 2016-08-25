@@ -16,8 +16,9 @@ import matplotlib.pyplot as plt
 
 Y_SAME = 1
 Y_DIFFERENT = 0
-IMAGE_WIDTH = 64
-IMAGE_HEIGHT = 64
+#IMAGE_WIDTH = 32
+#IMAGE_HEIGHT = 32
+#IMAGE_CHANNELS = 1
 
 class ImageFile(object):
     """Object to model one image file of the dataset.
@@ -40,7 +41,11 @@ class ImageFile(object):
         Returns:
             Content of image as numpy array (dtype: uint8).
             Should have shape (height, width) as the images are grayscaled."""
-        return misc.imread(self.filepath)
+        img = misc.imread(self.filepath)
+        assert len(img.shape) == 2, "Got shape %s, expected (height, width). " \
+                                    "Note: Only datasets with grayscale images " \
+                                    "are allowed." % (str(img.shape),)
+        return img
 
 class ImagePair(object):
     """Object that models a pair of images, used during training of the neural net.
@@ -78,12 +83,21 @@ class ImagePair(object):
             key = "$$$".join(fps)
         return key
 
-    def get_contents(self):
+    def get_contents(self, height, width):
         """Returns the contents (pixel values) of both images of the pair as one numpy array.
+        Args:
+            height: Output height of each image.
+            width: Output width of each image.
         Returns:
             Numpy array of shape (2, height, width) with dtype uint8.
         """
-        return np.array([self.image1.get_content(), self.image2.get_content()], dtype=np.uint8)
+        img1 = self.image1.get_content()
+        img2 = self.image2.get_content()
+        if img1.shape[0] != height or img1.shape[1] != width:
+            img1 = misc.imresize(img1, (height, width))
+        if img2.shape[0] != height or img2.shape[1] != width:
+            img2 = misc.imresize(img2, (height, width))
+        return np.array([img1, img2], dtype=np.uint8)
 
 def filepath_to_person_name(filepath):
     """Extracts the name of a person from a filepath.
@@ -112,7 +126,8 @@ def filepath_to_number(filepath):
     Returns:
         Number of that image (among all images of that person).
     """
-    return int(re.sub(r"[^0-9]", "", filepath))
+    fname = os.path.basename(filepath)
+    return int(re.sub(r"[^0-9]", "", fname))
 
 def get_image_files(dataset_filepath, exclude_images=None):
     """Loads all images sorted by filenames and returns them as ImageFile Objects.
@@ -139,7 +154,7 @@ def get_image_files(dataset_filepath, exclude_images=None):
 
     for directory, subdirs, files in os.walk(dataset_filepath):
         for name in files:
-            if name.endswith(".pgm"):
+            if re.match("^.*_[0-9]+\.(pgm|jpg|jpeg|png|bmp|tiff)$", name):
                 if name not in exclude_filenames:
                     images.append(ImageFile(directory, name))
     images = sorted(images, key=lambda image: image.filename)
@@ -359,7 +374,7 @@ def get_image_pairs(dataset_filepath, nb_max, pairs_of_same_imgs=False,
 
     return pairs
 
-def image_pairs_to_xy(image_pairs):
+def image_pairs_to_xy(image_pairs, height, width):
     """Converts a list of ImagePair objects to X (array of pixel values) and
     Y (labels) to use during training/testing.
 
@@ -371,11 +386,11 @@ def image_pairs_to_xy(image_pairs):
         Y is a numpy array of dtype float32 with shape (N, 1) containg
         the 'same person'/'different person' information.
     """
-    X = np.zeros((len(image_pairs), 2, IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8)
+    X = np.zeros((len(image_pairs), 2, height, width), dtype=np.uint8)
     y = np.zeros((len(image_pairs),), dtype=np.float32)
 
     for i, pair in enumerate(image_pairs):
-        X[i] = pair.get_contents()
+        X[i] = pair.get_contents(height, width)
         y[i] = Y_SAME if pair.same_person else Y_DIFFERENT
 
     return X, y
@@ -504,3 +519,5 @@ def plot_dataset_skew(pairs_train, pairs_val, pairs_test, only_y_same=True,
 
     if show_plot_windows:
         plt.show()
+
+    plt.close()

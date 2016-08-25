@@ -271,11 +271,17 @@ class LossAccPlotter(object):
             self.fig = fig
             self.ax_loss = ax1
             self.ax_acc = ax2
+            #self.fig = plt.figure(num=2, figsize=(24, 8))
+            #self.ax_loss = self.fig.add_subplot(111)
+            #self.ax_acc = self.fig.add_subplot(122)
         else:
             fig, ax = plt.subplots(ncols=1, figsize=(12, 8))
             self.fig = fig
             self.ax_loss = ax if self.show_loss_plot else None
             self.ax_acc = ax if self.show_acc_plot else None
+            #self.fig = plt.figure(num=1, figsize=(12, 8))
+            #self.ax_loss = self.fig.add_subplot(111) if self.show_loss_plot else None
+            #self.ax_acc = self.fig.add_subplot(111) if self.show_acc_plot else None
 
         # set_position is neccessary here in order to make space at the bottom
         # for the legend
@@ -292,8 +298,8 @@ class LossAccPlotter(object):
         if self.title is not None:
             self.fig.suptitle(self.title, fontsize=self.title_fontsize)
 
-        if self.show_plot_window:
-            plt.show(block=False)
+        #if self.show_plot_window:
+        #    plt.show(block=False)
 
     def redraw(self):
         """Redraws the plot with the current values.
@@ -315,7 +321,10 @@ class LossAccPlotter(object):
         """
         # initialize the plot if it's the first redraw
         if self.fig is None:
+            first_call = True
             self._initialize_plot()
+        else:
+            first_call = False
 
         # activate the plot, in case another plot was opened since the last call
         plt.figure(self.fig.number)
@@ -361,7 +370,11 @@ class LossAccPlotter(object):
                        bbox_to_anchor=(0.5, -0.08),
                        ncol=ncol)
 
-        plt.draw()
+        if self.show_plot_window:
+            if first_call:
+                plt.show(block=False)
+            else:
+                plt.draw()
 
         # save the redrawn plot to a file upon every redraw.
         if self.save_to_filepath is not None:
