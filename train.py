@@ -14,7 +14,8 @@ or more complex:
 
 where
     name_of_experiment:
-        Is the name of this experiment, used when saving data, e.g. "exp5_more_dropout".
+        Is the name of this experiment, used when saving data, e.g.
+        "exp5_more_dropout".
     --load="old_experiment_name":
         Is the name of an old experiment to continue. Must have the identical
         network architecture and optimizer as the new network.
@@ -26,18 +27,12 @@ import os
 import re
 import numpy as np
 import argparse
-import math
 
-from scipy import misc
-
-from keras.models import Sequential
-from keras.layers.core import Dense, Dropout, Reshape, Flatten, Activation
-from keras.layers.convolutional import Convolution2D, MaxPooling2D
-from keras.optimizers import Adagrad, Adam, Adamax, SGD
-from keras.regularizers import l1, l2, l1l2
+from keras.layers.core import Dense, Dropout, Flatten, Activation
+from keras.layers.convolutional import Convolution2D
+from keras.optimizers import Adam
 from keras.layers.normalization import BatchNormalization
-from keras.layers.advanced_activations import LeakyReLU, ELU
-from keras.layers.recurrent import GRU
+from keras.layers.advanced_activations import LeakyReLU
 from keras.layers import merge, Input
 from keras.models import Model
 from keras.layers.noise import GaussianNoise
@@ -48,7 +43,6 @@ from libs.laplotter import LossAccPlotter
 from utils.saveload import load_previous_model
 from utils.datasets import get_image_pairs, image_pairs_to_xy, plot_dataset_skew
 from utils.History import History
-from utils.Progbar import Progbar
 
 SEED = 42
 TRAIN_COUNT_EXAMPLES = 40000
@@ -61,7 +55,8 @@ INPUT_WIDTH = 32
 INPUT_CHANNELS = 1
 SAVE_DIR = os.path.dirname(os.path.realpath(__file__)) + "/experiments"
 SAVE_PLOT_FILEPATH = "%s/plots/{identifier}.png" % (SAVE_DIR)
-SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_dataset_skew.png" % (SAVE_DIR)
+SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_dataset_skew.png" \
+                                  % (SAVE_DIR)
 SAVE_CSV_FILEPATH = "%s/csv/{identifier}.csv" % (SAVE_DIR)
 SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
 SAVE_WEIGHTS_AFTER_EPOCHS = 1
@@ -95,27 +90,30 @@ def main():
     validate_identifier(args.identifier, must_exist=False)
 
     if not os.path.isdir(args.images):
-        raise Exception("The provided filepath to the dataset seems to not exist.")
+        raise Exception("The provided filepath to the dataset seems to not " \
+                        "exist.")
 
     if not args.images.endswith("/faces"):
-        print("[WARNING] Filepath to the dataset is expected to usually end in '/faces'," \
-              " i.e. the default directory containing all face images in the lfwcrop_grey dataset.")
+        print("[WARNING] Filepath to the dataset is expected to usually end " \
+              "in '/faces', i.e. the default directory containing all face " \
+              "images in the lfwcrop_grey dataset.")
 
     if args.load:
         validate_identifier(args.load)
 
     if identifier_exists(args.identifier):
         if args.identifier != args.load:
-            agreed = ask_continue("[WARNING] Identifier '%s' already exists and " \
-                                  "is different from load-identifier '%s'. It " \
-                                  "will be overwritten. Continue? [y/n] " \
-                                  % (args.identifier, args.load))
+            agreed = ask_continue("[WARNING] Identifier '%s' already exists " \
+                                  "and is different from load-identifier " \
+                                  "'%s'. It will be overwritten. Continue? " \
+                                  "[y/n] " % (args.identifier, args.load))
             if not agreed:
                 return
 
     # load validation set
     # we load this before the training set so that it is less skewed (otherwise
-    # most images of people with only one image would be lost to the training set)
+    # most images of people with only one image would be lost to the training
+    # set)
     print("-----------------------")
     print("Loading validation dataset...")
     print("-----------------------")
@@ -131,7 +129,8 @@ def main():
     print("")
     pairs_train = get_image_pairs(args.images, TRAIN_COUNT_EXAMPLES,
                                   pairs_of_same_imgs=False, ignore_order=True,
-                                  exclude_images=pairs_val, seed=SEED, verbose=True)
+                                  exclude_images=pairs_val, seed=SEED,
+                                  verbose=True)
     print("-----------------------")
 
     # check if more pairs have been requested than can be generated
@@ -140,8 +139,10 @@ def main():
 
     # we loaded pairs of filepaths so far, now load the contents
     print("Loading image contents from hard drive...")
-    X_val, y_val = image_pairs_to_xy(pairs_val, height=INPUT_HEIGHT, width=INPUT_WIDTH)
-    X_train, y_train = image_pairs_to_xy(pairs_train, height=INPUT_HEIGHT, width=INPUT_WIDTH)
+    X_val, y_val = image_pairs_to_xy(pairs_val, height=INPUT_HEIGHT,
+                                     width=INPUT_WIDTH)
+    X_train, y_train = image_pairs_to_xy(pairs_train, height=INPUT_HEIGHT,
+                                         width=INPUT_WIDTH)
 
     # Plot dataset skew
     print("Saving dataset skew plot to file...")
@@ -149,7 +150,9 @@ def main():
         pairs_train, pairs_val, [],
         only_y_same=True,
         show_plot_windows=SHOW_PLOT_WINDOWS,
-        save_to_filepath=SAVE_DISTRIBUTION_PLOT_FILEPATH.format(identifier=args.identifier)
+        save_to_filepath=SAVE_DISTRIBUTION_PLOT_FILEPATH.format(
+            identifier=args.identifier
+        )
     )
 
     # initialize the network
@@ -166,10 +169,12 @@ def main():
     # -------------------
     # initialize the plotter for loss and accuracy
     sp_fpath = SAVE_PLOT_FILEPATH.format(identifier=args.identifier)
-    la_plotter = LossAccPlotter(save_to_filepath=sp_fpath, show_plot_window=SHOW_PLOT_WINDOWS)
+    la_plotter = LossAccPlotter(save_to_filepath=sp_fpath,
+                                show_plot_window=SHOW_PLOT_WINDOWS)
 
     # initialize the image augmenter for training images
-    ia_train = ImageAugmenter(INPUT_WIDTH, INPUT_HEIGHT, hflip=True, vflip=False,
+    ia_train = ImageAugmenter(INPUT_WIDTH, INPUT_HEIGHT,
+                              hflip=True, vflip=False,
                               scale_to_percent=1.1,
                               scale_axis_equally=False,
                               rotation_deg=20,
@@ -186,7 +191,6 @@ def main():
 
     # load previous data if requested
     # includes: weights (works only if new and old model are identical),
-    # optimizer state (works only for same optimizer, seems to cause errors for adam),
     # history (loss and acc values per epoch),
     # old plot (will be continued)
     if args.load:
@@ -209,13 +213,19 @@ def main():
     print("Finished.")
 
 def create_model():
+    """Creates the neural network.
+    Returns:
+        neural network model, optimizer
+    """
+
     init_conv = "orthogonal"
     init_dense = "glorot_normal"
 
-    def conv(x, n_filters, kH, kW, sH, sW, border_same=True, drop=0.0, sigma=0.0):
+    def conv(x, n_filters, kH, kW, sH, sW, border_same=True, drop=0.0,
+             sigma=0.0):
         border_mode = "same" if border_same else "valid"
-        x = Convolution2D(n_filters, kH, kW, subsample=(sH, sW), border_mode=border_mode,
-                          init=init_conv)(x)
+        x = Convolution2D(n_filters, kH, kW, subsample=(sH, sW),
+                          border_mode=border_mode, init=init_conv)(x)
         x = LeakyReLU(0.33)(x)
         if sigma > 0:
             x = GaussianNoise(sigma)(x)
@@ -236,7 +246,8 @@ def create_model():
     # - more dropout after dense
     # - relus instead of lrelus
 
-    face_input = Input(shape=(INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH), dtype="float32")
+    face_input = Input(shape=(INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH),
+                       dtype="float32")
 
     face = conv(face_input, 32, 3, 3, 1, 1, False) # 30x30
     face = conv(face, 32, 3, 3, 1, 1, False) # 28x28
@@ -259,7 +270,8 @@ def create_model():
     face_right = face_model(face_right_input)
 
     merged = merge([face_left, face_right],
-                    mode=lambda tensors: abs(tensors[0] - tensors[1]), output_shape=(512,))
+                    mode=lambda tensors: abs(tensors[0] - tensors[1]),
+                    output_shape=(512,))
     merged = GaussianNoise(0.5)(merged)
     merged = Dropout(0.2)(merged)
 
@@ -271,12 +283,14 @@ def create_model():
     merged = Dense(1)(merged)
     merged = Activation("sigmoid")(merged)
 
-    classification_model = Model(input=[face_left_input, face_right_input], output=merged)
+    classification_model = Model(input=[face_left_input, face_right_input],
+                                 output=merged)
 
     optimizer = Adam()
 
     print("Compiling model...")
-    classification_model.compile(loss="binary_crossentropy", optimizer=optimizer, metrics=["accuracy"])
+    classification_model.compile(loss="binary_crossentropy",
+                                 optimizer=optimizer, metrics=["accuracy"])
 
     return classification_model, optimizer
 
@@ -326,10 +340,12 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
         for X_batch, Y_batch in flow_batches(X_train, y_train, ia_train,
                                              batch_size=BATCH_SIZE,
                                              shuffle=True, train=True):
-            bsize = X_batch[0].shape[0] # we dont use BATCH_SIZE here, because the
-                                        # last batch might have less entries than BATCH_SIZE
+            bsize = X_batch[0].shape[0] # we dont use BATCH_SIZE here, because
+                                        # the last batch might have less
+                                        # entries than BATCH_SIZE
             loss, acc = model.train_on_batch(X_batch, Y_batch)
-            progbar.add(bsize, values=[("train loss", loss), ("train acc", acc)])
+            progbar.add(bsize, values=[("train loss", loss),
+                                       ("train acc", acc)])
             loss_train_sum += (loss * bsize)
             acc_train_sum += (acc * bsize)
 
@@ -343,8 +359,9 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
         for X_batch, Y_batch in flow_batches(X_val, y_val, ia_val,
                                              batch_size=BATCH_SIZE_VAL,
                                              shuffle=False, train=False):
-            bsize = X_batch[0].shape[0] # we dont use BATCH_SIZE here, because the
-                                        # last batch might have less entries than BATCH_SIZE
+            bsize = X_batch[0].shape[0] # we dont use BATCH_SIZE here, because
+                                        # the last batch might have less
+                                        # entries than BATCH_SIZE
             loss, acc = model.test_on_batch(X_batch, Y_batch)
             progbar.add(bsize, values=[("val loss", loss), ("val acc", acc)])
             loss_val_sum += (loss * bsize)
@@ -361,12 +378,13 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
                     acc_train=acc_train, acc_val=acc_val)
 
         # Update plots with new data from this epoch
-        # We start plotting _after_ the first epoch as the first one usually contains
-        # a huge fall in loss (increase in accuracy) making it harder to see the
-        # minor swings at epoch 1000 and later.
+        # We start plotting _after_ the first epoch as the first one usually
+        # contains a huge fall in loss (increase in accuracy) making it harder
+        # to see the minor swings at epoch 1000 and later.
         if epoch > 0:
-            la_plotter.add_values(epoch, loss_train=loss_train, loss_val=loss_val,
-                                  acc_train=acc_train, acc_val=acc_val)
+            la_plotter.add_values(epoch, loss_train=loss_train,
+                                  loss_val=loss_val, acc_train=acc_train,
+                                  acc_val=acc_val)
 
         # Save the history to a csv file
         if SAVE_CSV_FILEPATH is not None:
@@ -381,9 +399,10 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
             weights_fp = os.path.join(SAVE_WEIGHTS_DIR, weights_fname)
             model.save_weights(weights_fp, overwrite=True)
 
-def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=False):
-    """Uses the datasets (either train. or val.) and returns them batch by batch,
-    transformed via the provided ImageAugmenter (ia).
+def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False,
+                 train=False):
+    """Uses the datasets (either train. or val.) and returns them batch by
+    batch, transformed via the provided ImageAugmenter (ia).
 
     Args:
         X_in: Pairs of input images of shape (N, 2, 64, 64).
@@ -447,8 +466,10 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
         width = X.shape[3]
         #nb_channels = X.shape[4] if len(X.shape) == 5 else 1
         nb_channels = X.shape[4]
-        X_batch_left = np.zeros((nb_examples_batch, height, width, nb_channels))
-        X_batch_right = np.zeros((nb_examples_batch, height, width, nb_channels))
+        X_batch_left = np.zeros((nb_examples_batch, height, width,
+                                nb_channels))
+        X_batch_right = np.zeros((nb_examples_batch, height, width,
+                                 nb_channels))
         #X_batch_left = np.zeros((nb_examples_batch, height, width))
         #X_batch_right = np.zeros((nb_examples_batch, height, width))
         for i in range(nb_examples_batch):
@@ -519,7 +540,8 @@ def identifier_exists(identifier):
         return False
 
 def ask_continue(message):
-    """Displays the message and waits for a "y" (yes) or "n" (no) input by the user.
+    """Displays the message and waits for a "y" (yes) or "n" (no) input by the
+    user.
 
     Args:
         message: The message to display.

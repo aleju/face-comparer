@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""File containing only the history class, see documentation below for more info."""
+"""File containing only the history class, see documentation below for more
+info."""
 import csv
 
 class History(object):
@@ -17,12 +18,13 @@ class History(object):
         self.acc_train = []
         self.acc_val = []
 
-    def add(self, epoch, loss_train=None, loss_val=None, acc_train=None, acc_val=None):
+    def add(self, epoch, loss_train=None, loss_val=None, acc_train=None,
+            acc_val=None):
         """Add an entry (row) to the history.
 
         Should work in principle without providing all values, but nevertheless
-        you should provide all. Used named attributes here mostly for clarity when
-        calling the function, so that values don't get mixed up.
+        you should provide all. Used named attributes here mostly for clarity
+        when calling the function, so that values don't get mixed up.
 
         Args:
             epoch: The epoch of the other values (i.e. of the row).
@@ -51,7 +53,8 @@ class History(object):
         """
         last_epoch = start_epoch + len(loss_train)
         for epoch, lt, lv, at, av in zip(range(start_epoch, last_epoch+1), \
-                                         loss_train, loss_val, acc_train, acc_val):
+                                         loss_train, loss_val, acc_train, \
+                                         acc_val):
             self.add(epoch, loss_train=lt, loss_val=lv, acc_train=at, acc_val=av)
 
     def save_to_filepath(self, csv_filepath):
@@ -79,7 +82,8 @@ class History(object):
         Args:
             csv_filepath: Full path to the file to read.
             last_epoch: The epoch until which to read the content (including).
-                E.g. last_epoch=10 will read the rows for epoch 1, 2, 3, ... and 10.
+                E.g. last_epoch=10 will read the rows for epoch 1, 2, 3, ...
+                and 10.
                 If set to "last" or None then all epochs will be read.
                 Default is None (read all).
         """

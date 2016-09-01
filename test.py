@@ -11,7 +11,7 @@ from train import validate_identifier, flow_batches, create_model
 from utils.datasets import get_image_pairs, image_pairs_to_xy, plot_dataset_skew
 from utils.saveload import load_weights
 from libs.ImageAugmenter import ImageAugmenter
-from train import SEED, TRAIN_COUNT_EXAMPLES, VALIDATION_COUNT_EXAMPLES, SAVE_DIR, \
+from train import SEED, TRAIN_COUNT_EXAMPLES, VALIDATION_COUNT_EXAMPLES, \
                   SAVE_WEIGHTS_DIR, INPUT_HEIGHT, INPUT_WIDTH
 
 TEST_COUNT_EXAMPLES = 0
@@ -29,49 +29,57 @@ def main():
                                            "which to load the weights.")
     parser.add_argument("--images", required=True,
                         help="Filepath to the 'faces/' subdirectory in the " \
-                             "'Labeled Faces in the Wild grayscaled and cropped' " \
-                             "dataset.")
+                             "'Labeled Faces in the Wild grayscaled and " \
+                             "cropped' dataset.")
     args = parser.parse_args()
     validate_identifier(args.identifier, must_exist=True)
 
     if not os.path.isdir(args.images):
-        raise Exception("The provided filepath to the dataset seems to not exist.")
+        raise Exception("The provided filepath to the dataset seems to not " \
+                        "exist.")
 
     # Load:
     #  1. Validation set,
     #  2. Training set,
     #  3. Test set
     # We will test on each one of them.
-    # Results from training and validation set are already known, but will be shown
-    # in more detail here.
-    # Additionally, we need to load train and val datasets to make sure that no image
-    # contained in them is contained in the test set.
+    # Results from training and validation set are already known, but will be
+    # shown in more detail here.
+    # Additionally, we need to load train and val datasets to make sure that
+    # no image contained in them is contained in the test set.
     print("Loading validation set...")
     pairs_val = get_image_pairs(args.images, VALIDATION_COUNT_EXAMPLES,
                                 pairs_of_same_imgs=False, ignore_order=True,
-                                exclude_images=list(), seed=SEED, verbose=False)
+                                exclude_images=list(), seed=SEED,
+                                verbose=False)
     assert len(pairs_val) == VALIDATION_COUNT_EXAMPLES
-    X_val, y_val = image_pairs_to_xy(pairs_val, height=INPUT_HEIGHT, width=INPUT_WIDTH)
+    X_val, y_val = image_pairs_to_xy(pairs_val, height=INPUT_HEIGHT,
+                                     width=INPUT_WIDTH)
 
     print("Loading training set...")
     pairs_train = get_image_pairs(args.images, TRAIN_COUNT_EXAMPLES,
                                   pairs_of_same_imgs=False, ignore_order=True,
-                                  exclude_images=pairs_val, seed=SEED, verbose=False)
+                                  exclude_images=pairs_val, seed=SEED,
+                                  verbose=False)
     assert len(pairs_train) == TRAIN_COUNT_EXAMPLES
-    X_train, y_train = image_pairs_to_xy(pairs_train, height=INPUT_HEIGHT, width=INPUT_WIDTH)
+    X_train, y_train = image_pairs_to_xy(pairs_train, height=INPUT_HEIGHT,
+                                         width=INPUT_WIDTH)
 
     print("Loading test set...")
     pairs_test = get_image_pairs(args.images, TEST_COUNT_EXAMPLES,
                                  pairs_of_same_imgs=False, ignore_order=True,
-                                 exclude_images=pairs_val+pairs_train, seed=SEED,
-                                 verbose=True)
+                                 exclude_images=pairs_val+pairs_train,
+                                 seed=SEED, verbose=False)
     assert len(pairs_test) == TEST_COUNT_EXAMPLES
-    X_test, y_test = image_pairs_to_xy(pairs_test, height=INPUT_HEIGHT, width=INPUT_WIDTH)
+    X_test, y_test = image_pairs_to_xy(pairs_test, height=INPUT_HEIGHT,
+                                       width=INPUT_WIDTH)
     print("")
 
     # Plot dataset skew
-    print("Plotting dataset skew. (Only for pairs of images showing the same person.)")
-    print("More unequal bars mean that the dataset is more skewed (towards very few people).")
+    print("Plotting dataset skew. (Only for pairs of images showing the " \
+          "same person.)")
+    print("More unequal bars mean that the dataset is more skewed (towards " \
+          "very few people).")
     print("Close the chart to continue.")
     plot_dataset_skew(
         pairs_train, pairs_val, pairs_test,
@@ -81,7 +89,8 @@ def main():
 
     print("Creating model...")
     model, _ = create_model()
-    (success, last_epoch) = load_weights(model, SAVE_WEIGHTS_DIR, args.identifier)
+    (success, last_epoch) = load_weights(model, SAVE_WEIGHTS_DIR,
+                                         args.identifier)
     if not success:
         raise Exception("Could not successfully load model weights")
     print("Loaded model weights of epoch '%s'" % (str(last_epoch)))
@@ -90,13 +99,14 @@ def main():
     # the images (ia_noop). If we do multiple runs, we will augment images in
     # each run (ia).
     ia_noop = ImageAugmenter(INPUT_WIDTH, INPUT_HEIGHT)
-    ia = ImageAugmenter(INPUT_WIDTH, INPUT_HEIGHT, hflip=True, vflip=False,
-                              scale_to_percent=1.1,
-                              scale_axis_equally=False,
-                              rotation_deg=20,
-                              shear_deg=6,
-                              translation_x_px=4,
-                              translation_y_px=4)
+    ia = ImageAugmenter(INPUT_WIDTH, INPUT_HEIGHT,
+                        hflip=True, vflip=False,
+                        scale_to_percent=1.1,
+                        scale_axis_equally=False,
+                        rotation_deg=20,
+                        shear_deg=6,
+                        translation_x_px=4,
+                        translation_y_px=4)
 
     # ---------------
     # Run the tests on the train/val/test sets.
@@ -105,7 +115,8 @@ def main():
     # multiple runs over the same images and augment them each time. Then
     # we will average the predictions for each pair over the runs to come
     # to a final conclusion.
-    # Using augmentation seems to improve the results very slightly (<1% difference).
+    # Using augmentation seems to improve the results very slightly
+    # (<1% difference).
     # ---------------
 
     # only 1 run for training set, as 10 or more runs would take quite long
@@ -155,7 +166,8 @@ def evaluate_model(model, X, y, ia, nb_runs):
     Additionally, up to 20 false positive pairs will be plotted
     as well as up to 20 false negatives.
 
-    If the number of runs N is equal to 1, then no augmentation will be applied.
+    If the number of runs N is equal to 1, then no augmentation will be
+    applied.
     If the number of runs N is >= 1, then the images will be augmented and
       N predictions will be made for each pair of images. The predictions will
       be averaged and if the average is >0.5 then the prediction is 1,
@@ -163,8 +175,10 @@ def evaluate_model(model, X, y, ia, nb_runs):
 
     Args:
         model: The model to use for the predictions
-        X: Image pairs to predict on. (numpy array of shape (N, 2, 32, 32); float32.)
-        y: Labels of the image pairs to predict on. (numpy array of shape N, 1; float32.)
+        X: Image pairs to predict on. (numpy array of shape (N, 2, 32, 32);
+           float32.)
+        y: Labels of the image pairs to predict on. (numpy array of shape N, 1;
+           float32.)
         ia: ImageAugmenter to use.
     """
     # results contains counts of true/false predictions
@@ -183,7 +197,8 @@ def evaluate_model(model, X, y, ia, nb_runs):
     predictions = np.zeros((X.shape[0], nb_runs), dtype=np.float32)
     for run_idx in range(nb_runs):
         pair_idx = 0
-        for X_batch, Y_batch in flow_batches(X, y, ia, shuffle=False, train=train_mode):
+        for X_batch, Y_batch in flow_batches(X, y, ia, shuffle=False, \
+                                             train=train_mode):
             Y_pred = model.predict_on_batch(X_batch)
             for i in range(Y_pred.shape[0]):
                 predictions[pair_idx][run_idx] = Y_pred[i]
