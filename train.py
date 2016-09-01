@@ -36,7 +36,7 @@ from keras.layers.convolutional import Convolution2D, MaxPooling2D
 from keras.optimizers import Adagrad, Adam, Adamax, SGD
 from keras.regularizers import l1, l2, l1l2
 from keras.layers.normalization import BatchNormalization
-from keras.layers.advanced_activations import LeakyReLU
+from keras.layers.advanced_activations import LeakyReLU, ELU
 from keras.layers.recurrent import GRU
 from keras.layers import merge, Input
 from keras.models import Model
@@ -45,13 +45,13 @@ from keras.utils import generic_utils
 
 from libs.ImageAugmenter import ImageAugmenter
 from libs.laplotter import LossAccPlotter
-from utils.saveload import load_previous_model, save_model_weights
+from utils.saveload import load_previous_model
 from utils.datasets import get_image_pairs, image_pairs_to_xy, plot_dataset_skew
 from utils.History import History
 from utils.Progbar import Progbar
 
 SEED = 42
-TRAIN_COUNT_EXAMPLES = 20000
+TRAIN_COUNT_EXAMPLES = 40000
 VALIDATION_COUNT_EXAMPLES = 256
 EPOCHS = 1000 * 1000
 BATCH_SIZE = 128
@@ -64,7 +64,6 @@ SAVE_PLOT_FILEPATH = "%s/plots/{identifier}.png" % (SAVE_DIR)
 SAVE_DISTRIBUTION_PLOT_FILEPATH = "%s/plots/{identifier}_dataset_skew.png" % (SAVE_DIR)
 SAVE_CSV_FILEPATH = "%s/csv/{identifier}.csv" % (SAVE_DIR)
 SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
-#SAVE_OPTIMIZER_STATE_DIR = "%s/optstate" % (SAVE_DIR)
 SAVE_WEIGHTS_AFTER_EPOCHS = 1
 SHOW_PLOT_WINDOWS = False
 
@@ -99,7 +98,8 @@ def main():
         raise Exception("The provided filepath to the dataset seems to not exist.")
 
     if not args.images.endswith("/faces"):
-        print("[WARNING] Filepath to the dataset is expected to usually end in '/faces', i.e. the default directory containing all face images in the lfwcrop_grey dataset.")
+        print("[WARNING] Filepath to the dataset is expected to usually end in '/faces'," \
+              " i.e. the default directory containing all face images in the lfwcrop_grey dataset.")
 
     if args.load:
         validate_identifier(args.load)
@@ -208,21 +208,33 @@ def main():
 
     print("Finished.")
 
-def create_model(dropout=None):
-    """Expects batches from flow_batches_branched()
-    """
-
-
+def create_model():
     init_conv = "orthogonal"
     init_dense = "glorot_normal"
 
-    def conv(x, n_filters, kH, kW, sH, sW, border_same=True, drop=0.1):
+    def conv(x, n_filters, kH, kW, sH, sW, border_same=True, drop=0.0, sigma=0.0):
         border_mode = "same" if border_same else "valid"
-        x = Convolution2D(n_filters, kH, kW, subsample=(sH, sW), border_mode=border_mode, init=init_conv)(x)
+        x = Convolution2D(n_filters, kH, kW, subsample=(sH, sW), border_mode=border_mode,
+                          init=init_conv)(x)
         x = LeakyReLU(0.33)(x)
+        if sigma > 0:
+            x = GaussianNoise(sigma)(x)
         if drop > 0:
             x = Dropout(drop)(x)
         return x
+
+    # alternatives that performed similarly:
+    # (1) no dropout on facemodel, 0.5 noise + 0.5 dropout after merge
+    # (2) leaky relu alphas of 0.5
+    # worse (most only slightly):
+    # - more conv layers
+    # - dropout after conv layers
+    # - only gaussian noise after merge
+    # - only dropout after merge
+    # - more dense layers after merge
+    # - less dense layers after merge
+    # - more dropout after dense
+    # - relus instead of lrelus
 
     face_input = Input(shape=(INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH), dtype="float32")
 
@@ -239,13 +251,17 @@ def create_model(dropout=None):
     face_output = face
 
     face_model = Model(face_input, face_output)
-    face_left_input = Input(shape=(INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH), dtype="float32", name="face_left")
-    face_right_input = Input(shape=(INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH), dtype="float32", name="face_right")
+    face_left_input = Input(shape=(INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH),
+                            dtype="float32", name="face_left")
+    face_right_input = Input(shape=(INPUT_CHANNELS, INPUT_HEIGHT, INPUT_WIDTH),
+                             dtype="float32", name="face_right")
     face_left = face_model(face_left_input)
     face_right = face_model(face_right_input)
 
-    merged = merge([face_left, face_right], mode=lambda tensors: abs(tensors[0] - tensors[1]), output_shape=(512,))
-    merged = Dropout(0.5)(merged)
+    merged = merge([face_left, face_right],
+                    mode=lambda tensors: abs(tensors[0] - tensors[1]), output_shape=(512,))
+    merged = GaussianNoise(0.5)(merged)
+    merged = Dropout(0.2)(merged)
 
     merged = Dense(256, init=init_dense)(merged)
     merged = BatchNormalization()(merged)
@@ -303,9 +319,9 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
         nb_examples_val = X_val.shape[0]
 
         # Training loop
-        # interval=0 is required for small batch sizes
+        # interval=0 is required for small batch sizes, otherwise the printed
+        # output of Progbar can look buggy
         progbar = generic_utils.Progbar(nb_examples_train, interval=0)
-        #progbar = Progbar(nb_examples_train)
 
         for X_batch, Y_batch in flow_batches(X_train, y_train, ia_train,
                                              batch_size=BATCH_SIZE,
@@ -318,9 +334,9 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
             acc_train_sum += (acc * bsize)
 
         # Validation loop
-        # interval=0 is required for small batch sizes
+        # interval=0 is required for small batch sizes, otherwise the printed
+        # output of Progbar can look buggy
         progbar = generic_utils.Progbar(nb_examples_val, interval=0)
-        #progbar = Progbar(nb_examples_val)
 
         # Iterate over each batch in the validation data
         # and calculate loss and accuracy for each batch
@@ -360,9 +376,10 @@ def train_loop(identifier, model, optimizer, epoch_start, history, la_plotter,
         # Save the weights and optimizer state to files
         swae = SAVE_WEIGHTS_AFTER_EPOCHS
         if swae and swae > 0 and (epoch+1) % swae == 0:
-            print("Saving model...")
-            save_model_weights(model, SAVE_WEIGHTS_DIR,
-                               "{}.last.weights".format(identifier), overwrite=True)
+            print("Saving weights...")
+            weights_fname = "{}.last.weights".format(identifier)
+            weights_fp = os.path.join(SAVE_WEIGHTS_DIR, weights_fname)
+            model.save_weights(weights_fp, overwrite=True)
 
 def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=False):
     """Uses the datasets (either train. or val.) and returns them batch by batch,
@@ -375,6 +392,8 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
         batch_size: Size of the batches to return.
         shuffle: Whether to shuffle (randomize) the order of the images before
             starting to return any batches.
+        train: Whether the batches are generated for training (True) or
+            validation (False) run.
 
     Returns:
         Batches, i.e. tuples of (X, y).
@@ -413,12 +432,12 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
         # augment the images of the batch
         batch_img1 = batch[:, 0, ...] # left images
         batch_img2 = batch[:, 1, ...] # right images
-        if train:
-            batch_img1 = ia.augment_batch(batch_img1)
-            batch_img2 = ia.augment_batch(batch_img2)
-        else:
-            batch_img1 = batch_img1 / 255.0
-            batch_img2 = batch_img2 / 255.0
+        #if train:
+        batch_img1 = ia.augment_batch(batch_img1)
+        batch_img2 = ia.augment_batch(batch_img2)
+        #else:
+        #    batch_img1 = batch_img1 / 255.0
+        #    batch_img2 = batch_img2 / 255.0
 
         # resize and merge the pairs of images to shape (B, 1, 32, 64), where
         # B is the size of this batch and 1 represents the only channel
@@ -426,7 +445,8 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
         # X has usually shape (20000, 2, 64, 64, 3)
         height = X.shape[2]
         width = X.shape[3]
-        nb_channels = X.shape[4] if len(X.shape) == 5 else 1
+        #nb_channels = X.shape[4] if len(X.shape) == 5 else 1
+        nb_channels = X.shape[4]
         X_batch_left = np.zeros((nb_examples_batch, height, width, nb_channels))
         X_batch_right = np.zeros((nb_examples_batch, height, width, nb_channels))
         #X_batch_left = np.zeros((nb_examples_batch, height, width))
@@ -440,8 +460,10 @@ def flow_batches(X_in, y_in, ia, batch_size=BATCH_SIZE, shuffle=False, train=Fal
                 img1 = batch_img1[i]
                 img2 = batch_img2[i]
 
-            X_batch_left[i] = img1[:, :, np.newaxis]
-            X_batch_right[i] = img2[:, :, np.newaxis]
+            #X_batch_left[i] = img1[:, :, np.newaxis]
+            #X_batch_right[i] = img2[:, :, np.newaxis]
+            X_batch_left[i] = img1
+            X_batch_right[i] = img2
 
         # Collect the y values of the batch
         y_batch = y[batch_start:batch_end]

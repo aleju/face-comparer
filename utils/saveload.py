@@ -3,15 +3,15 @@
 from __future__ import print_function, absolute_import
 import os
 import os.path
-import h5py
+#import h5py
 import sys
 import re
 from utils.History import History
 
 def load_previous_model(identifier, model, la_plotter,
                         weights_dir, csv_filepath):
-    """Loads the model of a previous experiment with the provided identifier
-    (weights, optimizer state, history, plot).
+    """Loads the data (weights, history, plot) of a previous experiment
+    that had the provided identifier.
 
     Args:
         identifier: Identifier of the previous experiment.
@@ -19,6 +19,9 @@ def load_previous_model(identifier, model, la_plotter,
             Architecture (layers) must be identical.
         la_plotter: The current plotter for loss and accuracy. Will be updated
             with the loaded history data.
+        weights_dir: Directory where model weights are saved.
+        csv_filepath: Filepath to the csv file containing the history data
+            of that experiment.
 
     Returns:
         Will return a tupel (last epoch, history), where "last epoch" is the
@@ -46,19 +49,6 @@ def load_previous_model(identifier, model, la_plotter,
                               redraw=False)
 
     return history.epochs[-1], history
-
-def save_model_weights(model, file_dir, file_name, overwrite=False):
-    """Save the weights of a model/neural net.
-
-    Args:
-        model: The neural net.
-        file_dir: Directory in which to create the file.
-        file_name: Name of the file to write to.
-        overwrite: Whether to overwrite an existing file. If set to False,
-            the program will stop and ask whether to overwrite the content.
-    """
-    filepath = os.path.join(file_dir, file_name)
-    model.save_weights(filepath, overwrite=overwrite)
 
 def load_weights(model, save_weights_dir, previous_identifier):
     """Load the weights of an older experiment into a model.

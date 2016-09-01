@@ -16,9 +16,7 @@ import matplotlib.pyplot as plt
 
 Y_SAME = 1
 Y_DIFFERENT = 0
-#IMAGE_WIDTH = 32
-#IMAGE_HEIGHT = 32
-#IMAGE_CHANNELS = 1
+IMAGE_CHANNELS = 1
 
 class ImageFile(object):
     """Object to model one image file of the dataset.
@@ -41,10 +39,15 @@ class ImageFile(object):
         Returns:
             Content of image as numpy array (dtype: uint8).
             Should have shape (height, width) as the images are grayscaled."""
-        img = misc.imread(self.filepath)
-        assert len(img.shape) == 2, "Got shape %s, expected (height, width). " \
-                                    "Note: Only datasets with grayscale images " \
-                                    "are allowed." % (str(img.shape),)
+        if IMAGE_CHANNELS == 3:
+            img = misc.imread(self.filepath, mode="RGB")
+        else:
+            img = misc.imread(self.filepath)
+            assert len(img.shape) == 2
+            img = img[:, :, np.newaxis]
+        #assert len(img.shape) == 2, "Got shape %s, expected (height, width). " \
+        #                            "Note: Only datasets with grayscale images " \
+        #                            "are allowed." % (str(img.shape),)
         return img
 
 class ImagePair(object):
@@ -94,9 +97,19 @@ class ImagePair(object):
         img1 = self.image1.get_content()
         img2 = self.image2.get_content()
         if img1.shape[0] != height or img1.shape[1] != width:
-            img1 = misc.imresize(img1, (height, width))
+            # imresize can only handle (height, width) or (height, width, 3),
+            # not (height, width, 1), so squeeze away the last channel
+            if IMAGE_CHANNELS == 1:
+                img1 = misc.imresize(np.squeeze(img1), (height, width))
+                img1 = img1[:, :, np.newaxis]
+            else:
+                img1 = misc.imresize(img1, (height, width))
         if img2.shape[0] != height or img2.shape[1] != width:
-            img2 = misc.imresize(img2, (height, width))
+            if IMAGE_CHANNELS == 1:
+                img2 = misc.imresize(np.squeeze(img2), (height, width))
+                img2 = img2[:, :, np.newaxis]
+            else:
+                img2 = misc.imresize(img2, (height, width))
         return np.array([img1, img2], dtype=np.uint8)
 
 def filepath_to_person_name(filepath):
@@ -154,7 +167,7 @@ def get_image_files(dataset_filepath, exclude_images=None):
 
     for directory, subdirs, files in os.walk(dataset_filepath):
         for name in files:
-            if re.match("^.*_[0-9]+\.(pgm|jpg|jpeg|png|bmp|tiff)$", name):
+            if re.match("^.*_[0-9]+\.(pgm|ppm|jpg|jpeg|png|bmp|tiff)$", name):
                 if name not in exclude_filenames:
                     images.append(ImageFile(directory, name))
     images = sorted(images, key=lambda image: image.filename)
@@ -386,7 +399,7 @@ def image_pairs_to_xy(image_pairs, height, width):
         Y is a numpy array of dtype float32 with shape (N, 1) containg
         the 'same person'/'different person' information.
     """
-    X = np.zeros((len(image_pairs), 2, height, width), dtype=np.uint8)
+    X = np.zeros((len(image_pairs), 2, height, width, IMAGE_CHANNELS), dtype=np.uint8)
     y = np.zeros((len(image_pairs),), dtype=np.float32)
 
     for i, pair in enumerate(image_pairs):

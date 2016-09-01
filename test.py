@@ -11,13 +11,10 @@ from train import validate_identifier, flow_batches, create_model
 from utils.datasets import get_image_pairs, image_pairs_to_xy, plot_dataset_skew
 from utils.saveload import load_weights
 from libs.ImageAugmenter import ImageAugmenter
+from train import SEED, TRAIN_COUNT_EXAMPLES, VALIDATION_COUNT_EXAMPLES, SAVE_DIR, \
+                  SAVE_WEIGHTS_DIR, INPUT_HEIGHT, INPUT_WIDTH
 
-SEED = 42
-TRAIN_COUNT_EXAMPLES = 20000
-VALIDATION_COUNT_EXAMPLES = 256
-TEST_COUNT_EXAMPLES = 512
-SAVE_DIR = os.path.dirname(os.path.realpath(__file__)) + "/experiments"
-SAVE_WEIGHTS_DIR = "%s/weights" % (SAVE_DIR)
+TEST_COUNT_EXAMPLES = 0
 SHOW_PLOT_WINDOWS = True
 
 np.random.seed(SEED)
@@ -34,10 +31,6 @@ def main():
                         help="Filepath to the 'faces/' subdirectory in the " \
                              "'Labeled Faces in the Wild grayscaled and cropped' " \
                              "dataset.")
-    parser.add_argument("--augmul", required=False,
-                        help="Multiplicator for the augmentation " \
-                             "(0.0=no augmentation, 1.0=normal aug., 2.0=rather " \
-                             "strong aug.). Default is 1.5.")
     args = parser.parse_args()
     validate_identifier(args.identifier, must_exist=True)
 
@@ -58,14 +51,14 @@ def main():
                                 pairs_of_same_imgs=False, ignore_order=True,
                                 exclude_images=list(), seed=SEED, verbose=False)
     assert len(pairs_val) == VALIDATION_COUNT_EXAMPLES
-    X_val, y_val = image_pairs_to_xy(pairs_val)
+    X_val, y_val = image_pairs_to_xy(pairs_val, height=INPUT_HEIGHT, width=INPUT_WIDTH)
 
     print("Loading training set...")
     pairs_train = get_image_pairs(args.images, TRAIN_COUNT_EXAMPLES,
                                   pairs_of_same_imgs=False, ignore_order=True,
                                   exclude_images=pairs_val, seed=SEED, verbose=False)
     assert len(pairs_train) == TRAIN_COUNT_EXAMPLES
-    X_train, y_train = image_pairs_to_xy(pairs_train)
+    X_train, y_train = image_pairs_to_xy(pairs_train, height=INPUT_HEIGHT, width=INPUT_WIDTH)
 
     print("Loading test set...")
     pairs_test = get_image_pairs(args.images, TEST_COUNT_EXAMPLES,
@@ -73,7 +66,7 @@ def main():
                                  exclude_images=pairs_val+pairs_train, seed=SEED,
                                  verbose=True)
     assert len(pairs_test) == TEST_COUNT_EXAMPLES
-    X_test, y_test = image_pairs_to_xy(pairs_test)
+    X_test, y_test = image_pairs_to_xy(pairs_test, height=INPUT_HEIGHT, width=INPUT_WIDTH)
     print("")
 
     # Plot dataset skew
@@ -87,7 +80,7 @@ def main():
     )
 
     print("Creating model...")
-    model, _ = create_model(0.00)
+    model, _ = create_model()
     (success, last_epoch) = load_weights(model, SAVE_WEIGHTS_DIR, args.identifier)
     if not success:
         raise Exception("Could not successfully load model weights")
@@ -96,15 +89,14 @@ def main():
     # If we just do one run over a set (training/val/test) we will not augment
     # the images (ia_noop). If we do multiple runs, we will augment images in
     # each run (ia).
-    augmul = float(args.augmul) if args.augmul is not None else 1.50
-    ia_noop = ImageAugmenter(64, 64)
-    ia = ImageAugmenter(64, 64, hflip=True, vflip=False,
-                        scale_to_percent=1.0 + (0.075*augmul),
-                        scale_axis_equally=False,
-                        rotation_deg=int(7*augmul),
-                        shear_deg=int(3*augmul),
-                        translation_x_px=int(3*augmul),
-                        translation_y_px=int(3*augmul))
+    ia_noop = ImageAugmenter(INPUT_WIDTH, INPUT_HEIGHT)
+    ia = ImageAugmenter(INPUT_WIDTH, INPUT_HEIGHT, hflip=True, vflip=False,
+                              scale_to_percent=1.1,
+                              scale_axis_equally=False,
+                              rotation_deg=20,
+                              shear_deg=6,
+                              translation_x_px=4,
+                              translation_y_px=4)
 
     # ---------------
     # Run the tests on the train/val/test sets.
@@ -135,16 +127,17 @@ def main():
     print("-------------")
     evaluate_model(model, X_val, y_val, ia, 50)
 
-    print("-------------")
-    print("Test set results (averaged over 1 run)")
-    print("-------------")
-    evaluate_model(model, X_test, y_test, ia_noop, 1)
-    print("")
+    if TEST_COUNT_EXAMPLES > 0:
+        print("-------------")
+        print("Test set results (averaged over 1 run)")
+        print("-------------")
+        evaluate_model(model, X_test, y_test, ia_noop, 1)
+        print("")
 
-    print("-------------")
-    print("Test set results (averaged over 50 runs)")
-    print("-------------")
-    evaluate_model(model, X_test, y_test, ia, 50)
+        print("-------------")
+        print("Test set results (averaged over 50 runs)")
+        print("-------------")
+        evaluate_model(model, X_test, y_test, ia, 25)
 
     print("Finished.")
 
@@ -229,22 +222,21 @@ def evaluate_model(model, X, y, ia, nb_runs):
 
     confusion_matrix = \
     """
-              | same   | different  | TRUTH
-    ---------------------------------
-         same | {:<5}  | {:<5}      |
-    different | {:<5}  | {:<5}      |
-    ---------------------------------
-    PREDICTION
+               | same   | different  | TRUTH
+    ---------- | ------ | ---------- | -----
+         same  | {:<5}  | {:<5}      |
+    different  | {:<5}  | {:<5}      |
+    PREDICTION |
     """
     print("Confusion Matrix (assuming Y=1 => same, Y=0 => different):")
     print(confusion_matrix.format(tp, fp, fn, tn))
 
     print("Showing up to 20 false positives (truth: diff, pred: same)...")
-    show_image_pairs(false_positives[0:20])
+    show_image_pairs(false_positives[0:20], "false positives")
     print("Showing up to 20 false negatives (truth: same, pred: diff)...")
-    show_image_pairs(false_negatives[0:20])
+    show_image_pairs(false_negatives[0:20], "false negatives")
 
-def show_image_pairs(image_pairs):
+def show_image_pairs(image_pairs, title):
     """Plot pairs of images.
 
     All pairs will be shown in the same window in two columns.
@@ -268,6 +260,7 @@ def show_image_pairs(image_pairs):
     nb_rows = 1 + int(len(image_pairs)*3 / nb_cols)
 
     fig = plt.figure(figsize=(6, 12))
+    #fig.suptitle(title)
     plot_number = 1 # index of the cell
 
     for image1, image2 in image_pairs:
@@ -275,16 +268,17 @@ def show_image_pairs(image_pairs):
         ax = fig.add_subplot(nb_rows, nb_cols, plot_number, xticklabels=[],
                              yticklabels=[])
         ax.set_axis_off()
-        plt.imshow(image1, cmap=cm.Greys_r, aspect="equal")
+        plt.imshow(np.squeeze(image1), cmap=cm.Greys_r, aspect="equal")
 
         # place img2
         ax = fig.add_subplot(nb_rows, nb_cols, plot_number + 1, xticklabels=[],
                              yticklabels=[])
         ax.set_axis_off()
-        plt.imshow(image2, cmap=cm.Greys_r, aspect="equal")
+        plt.imshow(np.squeeze(image2), cmap=cm.Greys_r, aspect="equal")
 
         plot_number += 3 # 2 images placed, 1 image gap
 
+    fig.tight_layout()
     plt.show()
 
 if __name__ == "__main__":
