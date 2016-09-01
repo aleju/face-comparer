@@ -1,10 +1,11 @@
 # About
 
-This convolutional neural network estimates whether two images of human faces show the same or a different person. It is trained and tested on the [Labeled Faces in the Wild, greyscaled and cropped (LFWcrop_grey)](http://conradsanderson.id.au/lfwcrop/) dataset. Peak performance seems to be at about 90% accuracy.
+This convolutional neural network estimates whether two images of human faces show the same or a different person. It is trained and tested on the [Labeled Faces in the Wild, greyscaled and cropped (LFWcrop_grey)](http://conradsanderson.id.au/lfwcrop/) dataset. Peak performance seems to be at about 90-91% accuracy.
 
 # Requirements
 
 * Python 2.7 (only tested in that version)
+* scipy
 * Numpy
 * matplotlib
 * [Keras](https://github.com/fchollet/keras)
@@ -19,7 +20,7 @@ python train.py name_of_experiment --images="/path/to/lfwcrop_grey/faces"
 ```
 where
 * `name_of_experiment` is a short identifier for your experiment (used during saving of files), e. g. "experiment_15_low_dropout".
-* `/path/to/lfwcrop_grey/faces` is the path to *the /faces subdirectory* of your LFWcrop_grey dataset.
+* `/path/to/lfwcrop_grey/faces` is the path to the `/faces` subdirectory of your LFWcrop_grey dataset.
 
 Training should take about an hour or less to reach high accuracy levels (assuming decent hardware).
 
@@ -27,7 +28,7 @@ You can test the network using
 ```
 python test.py name_of_experiment --images="/path/to/lfwcrop_grey/faces"
 ```
-which will output accuracy, error rate (1 - accuracy), recall, precision and f1 score for training, validation and test datasets. It will also plot/show pairs of images which resulted in false positives and false negatives (false positives: images of different persons, but network thought they were the same).
+which will output accuracy, error rate (1 - accuracy), recall, precision and f1 score for training, validation and test datasets. It will also plot/show pairs of images which resulted in false positives and false negatives (false positives: images of different people, but network thought they were the same).
 
 # Architecture
 
@@ -36,6 +37,8 @@ The outputs of both branches are then merged and further processed by another fu
 All convolutions use leaky ReLUs (alpha=0.33) and no batch normalization.
 
 ![Architecture](images/architecture.png?raw=true "Architecture")
+
+The used optimizer is Adam. All images are heavily augmented during training (rotation, translation, skew, ...).
 
 # Results
 
